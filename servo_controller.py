@@ -185,7 +185,12 @@ class ESP32SerialBridge:
                 timeout=0.05,
                 write_timeout=0.05,
             )
-            time.sleep(0.15)  # Allow DTR reset to settle on connection
+            try:
+                self.ser.dtr = True
+                self.ser.rts = True
+            except Exception:
+                pass
+            time.sleep(0.15)  # Allow USB CDC connection to settle
             self.port = port
             self.is_connected = True
             print(f"[ESP32] Successfully connected on serial port: {port} ({self.baudrate} baud)")
