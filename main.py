@@ -186,13 +186,26 @@ def main():
     parser.add_argument("--weights", type=str, default=None, help="Path to custom YOLO weights (.pt)")
     parser.add_argument("--conf", type=float, default=0.80, help="Confidence threshold for YOLO (default: 0.80)")
     parser.add_argument("--cv-only", action="store_true", help="Launch in standalone OpenCV window without CustomTkinter GUI")
+    parser.add_argument("--pan-pin", type=int, default=17, help="GPIO pin for Pan servo (default: 17)")
+    parser.add_argument("--tilt-pin", type=int, default=27, help="GPIO pin for Tilt servo (default: 27)")
+    parser.add_argument("--invert-pan", action="store_true", help="Invert pan servo direction")
+    parser.add_argument("--invert-tilt", action="store_true", help="Invert tilt servo direction")
     parser.add_argument("--no-servo", action="store_true", help="Disable servo controller")
     parser.add_argument("--mock-servo", action="store_true", help="Force mock servo mode (skip pigpio hardware)")
     args = parser.parse_args()
 
     source = int(args.source) if args.source.isdigit() else args.source
 
-    servo = PanTiltServoing(force_mock=args.mock_servo)
+    pan_sign = 1 if args.invert_pan else -1
+    tilt_sign = -1 if args.invert_tilt else 1
+
+    servo = PanTiltServoing(
+        pan_gpio=args.pan_pin,
+        tilt_gpio=args.tilt_pin,
+        pan_sign=pan_sign,
+        tilt_sign=tilt_sign,
+        force_mock=args.mock_servo,
+    )
     if args.no_servo:
         servo.enabled = False
 

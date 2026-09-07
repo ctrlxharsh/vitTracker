@@ -62,8 +62,8 @@ python main.py --weights best.pt --source path/to/video.mp4
 ```
 
 ## Hardware Servoing & Raspberry Pi Setup
-- **Pan (Azimuth)**: GPIO 12 (PWM0)
-- **Tilt (Elevation)**: GPIO 13 (PWM1)
+- **Pan (Azimuth)**: GPIO 17
+- **Tilt (Elevation)**: GPIO 27
 - Automatic mock/simulation fallback on macOS/Windows/Linux without pigpiod.
 
 ### Raspberry Pi Installation Options

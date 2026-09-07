@@ -82,6 +82,8 @@ class CSRTTrackerApp:
         self.var_trajectory = tk.BooleanVar(value=True)
         self.var_boresight = tk.BooleanVar(value=True)
         self.var_servo_active = tk.BooleanVar(value=True)
+        self.var_inv_pan = tk.BooleanVar(value=(self.servo.pan_sign > 0))
+        self.var_inv_tilt = tk.BooleanVar(value=(self.servo.tilt_sign < 0))
 
         self._load_icons()
         self._build_ui()
@@ -211,7 +213,8 @@ class CSRTTrackerApp:
             text_color="#9aa0b4",
         ).pack(side="left")
 
-        hw_text = "HARDWARE (GPIO 12/13)" if self.servo.is_hardware else "MOCK (SIMULATION)"
+        hw_pins = f"GPIO {getattr(self.servo, 'pan_gpio', 17)}/{getattr(self.servo, 'tilt_gpio', 27)}"
+        hw_text = f"HARDWARE ({hw_pins})" if self.servo.is_hardware else "MOCK (SIMULATION)"
         hw_bg = "#065f46" if self.servo.is_hardware else "#374151"
         hw_fg = "#6ee7b7" if self.servo.is_hardware else "#cbd0df"
 
@@ -235,7 +238,7 @@ class CSRTTrackerApp:
         self.lbl_servo_angles.pack(anchor="w", padx=10, pady=1)
 
         servo_switch_row = ctk.CTkFrame(servo_card, fg_color="transparent")
-        servo_switch_row.pack(fill="x", padx=10, pady=(2, 4))
+        servo_switch_row.pack(fill="x", padx=10, pady=(2, 2))
 
         sw_servo = ctk.CTkSwitch(
             servo_switch_row,
@@ -246,6 +249,31 @@ class CSRTTrackerApp:
             font=ctk.CTkFont(size=11),
         )
         sw_servo.pack(side="left")
+
+        inv_row = ctk.CTkFrame(servo_card, fg_color="transparent")
+        inv_row.pack(fill="x", padx=10, pady=(0, 4))
+
+        cb_inv_pan = ctk.CTkCheckBox(
+            inv_row,
+            text="Inv Pan",
+            variable=self.var_inv_pan,
+            command=self._on_inv_pan_toggle,
+            checkbox_width=16,
+            checkbox_height=16,
+            font=ctk.CTkFont(size=10),
+        )
+        cb_inv_pan.pack(side="left", padx=(0, 8))
+
+        cb_inv_tilt = ctk.CTkCheckBox(
+            inv_row,
+            text="Inv Tilt",
+            variable=self.var_inv_tilt,
+            command=self._on_inv_tilt_toggle,
+            checkbox_width=16,
+            checkbox_height=16,
+            font=ctk.CTkFont(size=10),
+        )
+        cb_inv_tilt.pack(side="left")
 
         btn_recenter = ctk.CTkButton(
             servo_card,
@@ -482,6 +510,12 @@ class CSRTTrackerApp:
 
     def _on_servo_toggle(self):
         self.servo.enabled = self.var_servo_active.get()
+
+    def _on_inv_pan_toggle(self):
+        self.servo.pan_sign = 1 if self.var_inv_pan.get() else -1
+
+    def _on_inv_tilt_toggle(self):
+        self.servo.tilt_sign = -1 if self.var_inv_tilt.get() else 1
 
     def _on_recenter_servos(self):
         self.servo.center_servos()

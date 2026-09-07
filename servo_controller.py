@@ -116,8 +116,8 @@ class PanTiltServoing:
 
     def __init__(
         self,
-        pan_gpio: int = 12,
-        tilt_gpio: int = 13,
+        pan_gpio: int = 17,
+        tilt_gpio: int = 27,
         hfov_deg: float = 62.2,
         vfov_deg: float = 48.8,
         pan_sign: int = -1,
@@ -128,6 +128,8 @@ class PanTiltServoing:
         tilt_max: float = 45.0,
         force_mock: bool = False,
     ):
+        self.pan_gpio = pan_gpio
+        self.tilt_gpio = tilt_gpio
         self.hfov_deg = hfov_deg
         self.vfov_deg = vfov_deg
         self.pan_sign = pan_sign
@@ -141,6 +143,17 @@ class PanTiltServoing:
         if not force_mock and _PIGPIO_AVAILABLE:
             try:
                 pi_conn = pigpio.pi()
+                if not pi_conn.connected:
+                    pi_conn.stop()
+                    # If pigpiod daemon is not running, attempt to launch it
+                    import subprocess
+                    try:
+                        subprocess.run(["sudo", "pigpiod"], check=False, capture_output=True, timeout=2)
+                        time.sleep(0.4)
+                        pi_conn = pigpio.pi()
+                    except Exception:
+                        pass
+
                 if pi_conn.connected:
                     self.pi = pi_conn
                     self.is_hardware = True
