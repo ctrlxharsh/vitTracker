@@ -13,6 +13,7 @@ Features:
 - Safe travel clamping (prevents servo stall/binding) and soft center watchdog.
 """
 
+import atexit
 import threading
 import time
 from typing import List, Optional, Tuple
@@ -24,6 +25,19 @@ try:
 except ImportError:
     serial = None
     _SERIAL_AVAILABLE = False
+
+_ACTIVE_SERVO_INSTANCES: List["PanTiltServoing"] = []
+
+
+def _cleanup_all_servos():
+    for inst in list(_ACTIVE_SERVO_INSTANCES):
+        try:
+            inst.release()
+        except Exception:
+            pass
+
+
+atexit.register(_cleanup_all_servos)
 
 
 def deg_to_us(deg: float, sweep_deg: float = 180.0, min_us: float = 500.0, max_us: float = 2500.0) -> int:
@@ -290,6 +304,10 @@ class ESP32SerialBridge:
 
         if self.ser is not None:
             try:
+                # Send 0 PWM and OFF to ensure servos detach holding torque upon close
+                self.ser.write(b"P:0 T:0\nOFF\n")
+                self.ser.flush()
+                time.sleep(0.04)
                 self.ser.close()
             except Exception:
                 pass
@@ -350,6 +368,8 @@ class PanTiltServoing:
                 print("[ESP32] No hardware serial device detected. Initializing in MOCK mode.")
         else:
             print("[ESP32] Mock mode forced by user.")
+
+        _ACTIVE_SERVO_INSTANCES.append(self)
 
     @property
     def is_hardware(self) -> bool:
@@ -453,9 +473,26 @@ class PanTiltServoing:
 
         return self.pan_angle, self.tilt_angle
 
+    def relax_servos(self):
+        """Sends 0 PWM and OFF command to detach servos and shut off holding torque."""
+        if self.is_hardware and self.serial_bridge:
+            self.serial_bridge.send_pwm(0, 0)
+            self.serial_bridge.send_command("OFF")
+
     def release(self):
-        """Closes serial connection."""
+        """Closes serial connection and relaxes servos with 0 PWM."""
+        if self in _ACTIVE_SERVO_INSTANCES:
+            try:
+                _ACTIVE_SERVO_INSTANCES.remove(self)
+            except ValueError:
+                pass
+
         if self.serial_bridge is not None:
+            try:
+                self.relax_servos()
+                time.sleep(0.06)
+            except Exception:
+                pass
             self.serial_bridge.close()
             self.serial_bridge = None
         self.active_port = None

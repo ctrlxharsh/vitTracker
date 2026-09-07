@@ -70,6 +70,9 @@ class CSRTTrackerApp:
         self.last_clean_frame = None
         self.canvas_img_id = None
         self.tk_image = None
+        self._source_switch_token = 0
+        self._is_switching_source = False
+        self._pending_source_ready = None
 
         # Telemetry & Performance throttling
         self.fps_tracker = deque(maxlen=20)
@@ -708,17 +711,65 @@ class CSRTTrackerApp:
     # Stream Management
     # -------------------------------------------------------------------------
     def _open_source(self, source):
-        if self.cap is not None:
-            self.cap.release()
-            self.cap = None
+        """Asynchronously open video source to eliminate GUI thread freezes and beachballs."""
+        self._source_switch_token += 1
+        token = self._source_switch_token
+        self._is_switching_source = True
 
+        # Provide immediate, responsive feedback on GUI status pill
+        self._set_status("SWITCHING CAMERA...", "#1e3a8a", "#93c5fd")
+        self.lbl_source.configure(text=f"Connecting: {source}...")
+
+        old_cap = self.cap
+
+        def _loader_worker():
+            try:
+                cap = open_video_capture(source)
+                first_frame = None
+                if cap.isOpened():
+                    ret, frame = cap.read()
+                    if ret and frame is not None:
+                        first_frame = frame
+            except Exception as e:
+                print(f"[Camera] Error opening source '{source}': {e}")
+                cap = None
+                first_frame = None
+
+            # Discard if another camera switch occurred while opening
+            if token != self._source_switch_token:
+                if cap is not None:
+                    try:
+                        cap.release()
+                    except Exception:
+                        pass
+                return
+
+            # Release previous capture asynchronously
+            if old_cap is not None:
+                try:
+                    old_cap.release()
+                except Exception:
+                    pass
+
+            # Deliver new capture to main thread loop
+            self._pending_source_ready = (cap, first_frame, source, token)
+
+        threading.Thread(target=_loader_worker, daemon=True, name="CameraSwitchWorker").start()
+
+    def _apply_new_source(self, cap, first_frame, source, token):
+        if token != self._source_switch_token:
+            if cap is not None:
+                try:
+                    cap.release()
+                except Exception:
+                    pass
+            return
+
+        self._is_switching_source = False
         self._reset_tracker()
         self.canvas_img_id = None
-        self.last_frame = None
 
-        cap = open_video_capture(source)
-
-        if not cap.isOpened():
+        if cap is None or not cap.isOpened():
             err_msg = f"Cannot access video source '{source}'."
             print(f"Warning: {err_msg}")
             self._set_status("NO FEED - SELECT VIDEO FILE", "#7f1d1d", "#fca5a5")
@@ -739,11 +790,10 @@ class CSRTTrackerApp:
                     self.opt_camera.set(label)
                     break
 
-        # Display first frame immediately to eliminate startup blank delay
-        ret, frame = self.cap.read()
-        if ret and frame is not None:
-            self.last_frame = frame
-            self._render_to_canvas(frame)
+        # Render first frame immediately
+        if first_frame is not None:
+            self.last_frame = first_frame
+            self._render_to_canvas(first_frame)
 
         self._update_mode_ui()
 
@@ -884,6 +934,12 @@ class CSRTTrackerApp:
         if not self.is_running:
             return
 
+        # Check for completed async camera switch on main thread
+        if self._pending_source_ready is not None:
+            cap, first_frame, source, token = self._pending_source_ready
+            self._pending_source_ready = None
+            self._apply_new_source(cap, first_frame, source, token)
+
         t_now = time.monotonic()
         dt = max(1e-3, t_now - self.prev_time)
         self.prev_time = t_now
@@ -905,7 +961,10 @@ class CSRTTrackerApp:
                 if self.var_mirror.get():
                     frame = cv2.flip(frame, 1)
 
-                self.last_clean_frame = frame.copy()
+                if self.mode == "CSRT Manual":
+                    self.last_clean_frame = frame.copy()
+                else:
+                    self.last_clean_frame = frame
                 fh, fw = frame.shape[:2]
 
                 # Dispatch frame to tracker worker if available
@@ -1113,7 +1172,7 @@ class CSRTTrackerApp:
         ox = (cw - dw) // 2
         oy = (ch - dh) // 2
 
-        display_frame = frame.copy()
+        display_frame = frame
         if self.mode == "CSRT Manual" and self.drag_start and self.drag_current:
             x1, y1 = self.drag_start
             x2, y2 = self.drag_current
@@ -1121,9 +1180,10 @@ class CSRTTrackerApp:
             ry = min(y1, y2)
             rw = abs(x2 - x1)
             rh = abs(y2 - y1)
+            display_frame = frame.copy()
             cv2.rectangle(display_frame, (rx, ry), (rx + rw, ry + rh), (0, 210, 255), 2)
 
-        resized = cv2.resize(display_frame, (dw, dh), interpolation=cv2.INTER_AREA)
+        resized = cv2.resize(display_frame, (dw, dh), interpolation=cv2.INTER_LINEAR)
         rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
         img_pil = Image.fromarray(rgb)
         self.tk_image = ImageTk.PhotoImage(image=img_pil)
@@ -1138,8 +1198,13 @@ class CSRTTrackerApp:
     def _on_close(self):
         self.is_running = False
         self.is_paused = True
+        self._source_switch_token += 1
         if self.cap is not None:
-            self.cap.release()
+            try:
+                self.cap.release()
+            except Exception:
+                pass
+            self.cap = None
         self.servo.release()
         try:
             self.root.quit()

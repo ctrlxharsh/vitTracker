@@ -144,12 +144,26 @@ void processPacket(const char* packet) {
         panVal = CENTER_US;
         tiltVal = CENTER_US;
         sendFeedback("ACK: CENTER");
+    } else if (strncmp(packet, "OFF", 3) == 0 || strncmp(packet, "DETACH", 6) == 0 || strncmp(packet, "STOP", 4) == 0) {
+        panServo.writeMicroseconds(0);
+        tiltServo.writeMicroseconds(0);
+        digitalWrite(LED_PIN, LOW);
+        sendFeedback("ACK: OFF");
+        return;
     } else if (sscanf(packet, "P:%d T:%d", &panVal, &tiltVal) == 2) {
         // Formatted packet: P:<pan_us> T:<tilt_us>
     } else if (sscanf(packet, "%d,%d", &panVal, &tiltVal) == 2) {
         // CSV format: <pan_us>,<tilt_us>
     } else if (strncmp(packet, "PING", 4) == 0) {
         sendFeedback("PONG");
+        return;
+    }
+
+    if (panVal == 0 && tiltVal == 0) {
+        panServo.writeMicroseconds(0);
+        tiltServo.writeMicroseconds(0);
+        digitalWrite(LED_PIN, LOW);
+        sendFeedback("ACK: OFF");
         return;
     }
 

@@ -33,8 +33,11 @@ pan_pwm = PWM(Pin(PAN_PIN), freq=50)
 tilt_pwm = PWM(Pin(TILT_PIN), freq=50)
 
 def set_servo_us(pwm_dev, us):
-    # duty_ns takes nanoseconds: us * 1000
-    pwm_dev.duty_ns(int(us * 1000))
+    # Setting duty_ns(0) cuts PWM pulses completely, relaxing servo holding torque
+    if us <= 0:
+        pwm_dev.duty_ns(0)
+    else:
+        pwm_dev.duty_ns(int(us * 1000))
 
 # Recenter servos on boot
 set_servo_us(pan_pwm, CENTER_US)
@@ -73,6 +76,13 @@ while True:
                 set_servo_us(tilt_pwm, CENTER_US)
                 print("ACK: CENTER")
                 continue
+            elif line in ("OFF", "DETACH", "STOP", "RELEASE"):
+                set_servo_us(pan_pwm, 0)
+                set_servo_us(tilt_pwm, 0)
+                if led:
+                    led.value(0)
+                print("ACK: OFF")
+                continue
 
             pan_val = None
             tilt_val = None
@@ -92,7 +102,14 @@ while True:
                     pass
 
             if pan_val is not None and tilt_val is not None:
-                if MIN_PULSE_US <= pan_val <= MAX_PULSE_US and MIN_PULSE_US <= tilt_val <= MAX_PULSE_US:
+                if pan_val == 0 and tilt_val == 0:
+                    set_servo_us(pan_pwm, 0)
+                    set_servo_us(tilt_pwm, 0)
+                    if led:
+                        led.value(0)
+                    print("ACK: OFF")
+                    continue
+                elif MIN_PULSE_US <= pan_val <= MAX_PULSE_US and MIN_PULSE_US <= tilt_val <= MAX_PULSE_US:
                     p_clamped = max(PAN_MIN_US, min(PAN_MAX_US, pan_val))
                     t_clamped = max(TILT_MIN_US, min(TILT_MAX_US, tilt_val))
                     set_servo_us(pan_pwm, p_clamped)
@@ -104,6 +121,9 @@ while True:
             if len(buf) < 64:
                 buf += ch
 
-    # Watchdog: turn off LED if no packets for 2 seconds
-    if led and time.ticks_diff(time.ticks_ms(), last_pkt_ms) > 2000:
-        led.value(0)
+    # Watchdog: relax servos (cut PWM) and turn off LED if no packets for 3 seconds
+    if time.ticks_diff(time.ticks_ms(), last_pkt_ms) > 3000:
+        set_servo_us(pan_pwm, 0)
+        set_servo_us(tilt_pwm, 0)
+        if led:
+            led.value(0)

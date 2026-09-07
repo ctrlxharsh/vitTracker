@@ -11,6 +11,7 @@ Supports:
 
 import json
 import os
+import platform
 import subprocess
 import threading
 import time
@@ -135,8 +136,11 @@ class OpenCVCapture:
     def release(self):
         self._running = False
         if self._thread is not None and self._thread.is_alive():
-            self._thread.join(timeout=0.2)
-        return self.cap.release()
+            self._thread.join(timeout=0.1)
+        self._thread = None
+        old_cap = self.cap
+        # Release in background thread to avoid blocking GUI thread during AVFoundation session teardown
+        threading.Thread(target=old_cap.release, daemon=True).start()
 
     def get(self, prop: int) -> float:
         return self.cap.get(prop)
@@ -145,8 +149,15 @@ class OpenCVCapture:
         return self.cap.set(prop, val)
 
 
-def get_available_cameras():
+_CACHED_CAMERAS = None
+
+
+def get_available_cameras(refresh: bool = False):
     """Returns list of (index, display_label) for all active cameras without out-of-bound errors."""
+    global _CACHED_CAMERAS
+    if _CACHED_CAMERAS is not None and not refresh:
+        return list(_CACHED_CAMERAS)
+
     cameras = []
     cam_names = []
     try:
@@ -177,7 +188,8 @@ def get_available_cameras():
                 cameras.append((idx, label))
     if not cameras:
         cameras.append((0, "Camera 0 [Default]"))
-    return cameras
+    _CACHED_CAMERAS = cameras
+    return list(cameras)
 
 
 def find_best_camera_source() -> int:
@@ -215,8 +227,8 @@ def open_video_capture(source="auto", width: int = 1280, height: int = 720):
             is_cam_index = True
             cam_index = 0
 
-    if is_cam_index and cam_index == 0:
-        # First attempt Raspberry Pi Camera via picamera2
+    if is_cam_index and cam_index == 0 and platform.system() == "Linux":
+        # First attempt Raspberry Pi Camera via picamera2 on Linux
         try:
             picam = PiCameraCapture(width=width, height=height)
             ret, test_frame = picam.read()
@@ -236,29 +248,30 @@ def open_video_capture(source="auto", width: int = 1280, height: int = 720):
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-        # If OpenCV opened /dev/video0 but cannot read frames (typical with Pi Unicam),
+        # If OpenCV opened /dev/video0 on Linux but cannot read frames (typical with Pi Unicam),
         # try picamera2 as fallback
-        has_frame = False
-        if cap.isOpened():
-            try:
-                ret, _ = cap.read()
-                has_frame = ret
-            except Exception:
-                has_frame = False
+        if platform.system() == "Linux":
+            has_frame = False
+            if cap.isOpened():
+                try:
+                    ret, _ = cap.read()
+                    has_frame = ret
+                except Exception:
+                    has_frame = False
 
-        if not has_frame:
-            cap.release()
-            try:
-                picam = PiCameraCapture(width=width, height=height)
-                ret, test_frame = picam.read()
-                if ret and test_frame is not None:
-                    picam.source_desc = "Raspberry Pi Camera (CSI)"
-                    return picam
-                picam.release()
-            except Exception:
-                pass
-            # Reopen standard capture if picamera2 also failed
-            cap = cv2.VideoCapture(actual_source)
+            if not has_frame:
+                cap.release()
+                try:
+                    picam = PiCameraCapture(width=width, height=height)
+                    ret, test_frame = picam.read()
+                    if ret and test_frame is not None:
+                        picam.source_desc = "Raspberry Pi Camera (CSI)"
+                        return picam
+                    picam.release()
+                except Exception:
+                    pass
+                # Reopen standard capture if picamera2 also failed
+                cap = cv2.VideoCapture(actual_source)
 
         return OpenCVCapture(cap, source_desc=f"Webcam ({cam_index})", is_live=True, cam_index=cam_index)
     else:
