@@ -26,7 +26,12 @@ if [ ! -d ".venv" ]; then
     source .venv/bin/activate
     echo "==> Installing dependencies..."
     pip install --upgrade pip
+    if [ "$REQ_FILE" == "requirements.txt" ] && [ "$(uname -m)" == "aarch64" ]; then
+        echo "==> Pre-installing PyTorch CPU wheel for ARM64..."
+        pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+    fi
     pip install -r "$REQ_FILE"
+    pip uninstall -y opencv-python 2>/dev/null || true
     touch .venv/.installed
 fi
 
@@ -37,7 +42,11 @@ source .venv/bin/activate
 if [ "$REQ_FILE" == "requirements.txt" ]; then
     if ! python -c "import ultralytics" &>/dev/null; then
         echo "==> Ultralytics not detected in virtual environment. Installing dependencies from $REQ_FILE..."
+        if [ "$(uname -m)" == "aarch64" ] && ! python -c "import torch" &>/dev/null; then
+            pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+        fi
         pip install -r "$REQ_FILE"
+        pip uninstall -y opencv-python 2>/dev/null || true
         touch .venv/.installed
     fi
 elif [ "$REQ_FILE" == "requirements-pi.txt" ]; then
@@ -51,9 +60,19 @@ fi
 # Optional explicit dependency check with --install flag
 if [ "$1" == "--install" ]; then
     echo "==> Verifying dependencies..."
+    if [ "$REQ_FILE" == "requirements.txt" ] && [ "$(uname -m)" == "aarch64" ]; then
+        pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+    fi
     pip install -r "$REQ_FILE"
+    pip uninstall -y opencv-python 2>/dev/null || true
     touch .venv/.installed
     shift
+fi
+
+# Ensure opencv-contrib-python is active for CSRT tracker support
+if ! python -c "import cv2; assert hasattr(cv2, 'TrackerCSRT_create')" &>/dev/null; then
+    pip uninstall -y opencv-python 2>/dev/null || true
+    pip install --force-reinstall --no-deps "opencv-contrib-python>=4.10.0" 2>/dev/null || true
 fi
 
 # Launch AI Vision Tracker with Pan-Tilt Servoing directly

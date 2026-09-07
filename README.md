@@ -75,7 +75,7 @@ python main.py --weights best.pt --source path/to/video.mp4
    pip install -r requirements.txt
    python main.py
    ```
-   *(Note: On Linux aarch64, pip installs the official ARM64 PyTorch wheel and its dependency packages. Let pip finish downloading; PyTorch runs in pure CPU mode on Raspberry Pi).*
+   *(Note: On Linux aarch64 / Raspberry Pi, the script automatically installs PyTorch CPU wheels from `https://download.pytorch.org/whl/cpu` to avoid downloading over 1.7 GB of unnecessary NVIDIA CUDA packages).*
 
 2. **Lightweight Profile (CSRT & Servos only — no PyTorch, ~50 MB)**:
    ```bash
