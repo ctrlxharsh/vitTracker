@@ -264,11 +264,84 @@ class CSRTTrackerApp:
 
         self.lbl_servo_angles = ctk.CTkLabel(
             servo_card,
-            text="Pan: +0.0° (1500µs)  Tilt: +0.0° (1500µs)",
-            font=ctk.CTkFont(size=11, family="Courier, monospace", weight="bold"),
+            text="",
+            height=0,
+        )
+
+        # Real-Time PWM Visualizer
+        pwm_frame = ctk.CTkFrame(servo_card, fg_color="#181a20", corner_radius=8)
+        pwm_frame.pack(fill="x", padx=10, pady=(2, 6))
+
+        # Pan PWM Row
+        pan_info_row = ctk.CTkFrame(pwm_frame, fg_color="transparent")
+        pan_info_row.pack(fill="x", padx=8, pady=(4, 0))
+        ctk.CTkLabel(
+            pan_info_row,
+            text="PAN PWM",
+            font=ctk.CTkFont(size=10, weight="bold"),
+            text_color="#9aa0b4",
+        ).pack(side="left")
+        self.lbl_pan_pwm = ctk.CTkLabel(
+            pan_info_row,
+            text="1500 µs (0.0°)",
+            font=ctk.CTkFont(size=10, family="Courier, monospace", weight="bold"),
             text_color="#38bdf8",
         )
-        self.lbl_servo_angles.pack(anchor="w", padx=10, pady=1)
+        self.lbl_pan_pwm.pack(side="right")
+
+        self.bar_pan_pwm = ctk.CTkProgressBar(
+            pwm_frame,
+            progress_color="#38bdf8",
+            fg_color="#2b2d35",
+            height=6,
+            corner_radius=3,
+        )
+        self.bar_pan_pwm.set(0.5)
+        self.bar_pan_pwm.pack(fill="x", padx=8, pady=(2, 4))
+
+        # Tilt PWM Row
+        tilt_info_row = ctk.CTkFrame(pwm_frame, fg_color="transparent")
+        tilt_info_row.pack(fill="x", padx=8, pady=(0, 0))
+        ctk.CTkLabel(
+            tilt_info_row,
+            text="TILT PWM",
+            font=ctk.CTkFont(size=10, weight="bold"),
+            text_color="#9aa0b4",
+        ).pack(side="left")
+        self.lbl_tilt_pwm = ctk.CTkLabel(
+            tilt_info_row,
+            text="1500 µs (0.0°)",
+            font=ctk.CTkFont(size=10, family="Courier, monospace", weight="bold"),
+            text_color="#00d285",
+        )
+        self.lbl_tilt_pwm.pack(side="right")
+
+        self.bar_tilt_pwm = ctk.CTkProgressBar(
+            pwm_frame,
+            progress_color="#00d285",
+            fg_color="#2b2d35",
+            height=6,
+            corner_radius=3,
+        )
+        self.bar_tilt_pwm.set(0.5)
+        self.bar_tilt_pwm.pack(fill="x", padx=8, pady=(2, 4))
+
+        # Serial TX Stream badge
+        tx_row = ctk.CTkFrame(pwm_frame, fg_color="transparent")
+        tx_row.pack(fill="x", padx=8, pady=(1, 4))
+        ctk.CTkLabel(
+            tx_row,
+            text="ESP32 TX:",
+            font=ctk.CTkFont(size=9, weight="bold"),
+            text_color="#64748b",
+        ).pack(side="left")
+        self.lbl_serial_tx = ctk.CTkLabel(
+            tx_row,
+            text="P:1500 T:1500",
+            font=ctk.CTkFont(size=10, family="Courier, monospace"),
+            text_color="#a5f3fc",
+        )
+        self.lbl_serial_tx.pack(side="right")
 
         servo_switch_row = ctk.CTkFrame(servo_card, fg_color="transparent")
         servo_switch_row.pack(fill="x", padx=10, pady=(2, 2))
@@ -463,28 +536,37 @@ class CSRTTrackerApp:
         sw_mirror.pack(anchor="w", pady=1)
 
         # Source Switchers
+        src_label = ctk.CTkLabel(
+            self.sidebar,
+            text="VIDEO SOURCE",
+            font=ctk.CTkFont(size=10, weight="bold"),
+            text_color="#9aa0b4",
+        )
+        src_label.pack(anchor="w", padx=16, pady=(6, 2))
+
         src_row = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        src_row.pack(fill="x", padx=16, pady=3)
-        src_row.grid_columnconfigure(0, weight=1)
+        src_row.pack(fill="x", padx=16, pady=2)
+        src_row.grid_columnconfigure(0, weight=2)
         src_row.grid_columnconfigure(1, weight=1)
 
-        btn_cam = ctk.CTkButton(
+        self.cam_options = ["Camera 0", "Camera 1", "Camera 2", "Camera 3"]
+        self.opt_camera = ctk.CTkOptionMenu(
             src_row,
-            text="Camera",
-            image=self.icon_camera,
-            compound="left",
-            command=self._init_webcam,
+            values=self.cam_options,
+            command=self._on_camera_selected,
             fg_color="#1f2937",
-            hover_color="#374151",
+            button_color="#374151",
+            button_hover_color="#4b5563",
             height=26,
             corner_radius=6,
             font=ctk.CTkFont(size=11),
         )
-        btn_cam.grid(row=0, column=0, sticky="ew", padx=(0, 2))
+        self.opt_camera.set("Camera 0")
+        self.opt_camera.grid(row=0, column=0, sticky="ew", padx=(0, 2))
 
         btn_file = ctk.CTkButton(
             src_row,
-            text="Video File",
+            text="File",
             image=self.icon_folder,
             compound="left",
             command=self._open_file_dialog,
@@ -576,11 +658,28 @@ class CSRTTrackerApp:
     def _on_inv_tilt_toggle(self):
         self.servo.tilt_sign = 1 if self.var_inv_tilt.get() else -1
 
+    def _update_servo_telemetry(self, pan_ang: float, tilt_ang: float):
+        pan_us = self.servo.pan_us
+        tilt_us = self.servo.tilt_us
+        pan_ratio = max(0.0, min(1.0, (pan_us - 500) / 2000.0))
+        tilt_ratio = max(0.0, min(1.0, (tilt_us - 500) / 2000.0))
+
+        self.bar_pan_pwm.set(pan_ratio)
+        self.bar_tilt_pwm.set(tilt_ratio)
+        self.lbl_pan_pwm.configure(text=f"{pan_us} µs ({pan_ang:+5.1f}°)")
+        self.lbl_tilt_pwm.configure(text=f"{tilt_us} µs ({tilt_ang:+5.1f}°)")
+        self.lbl_serial_tx.configure(text=f"P:{pan_us} T:{tilt_us}")
+
     def _on_recenter_servos(self):
         self.servo.center_servos()
-        self.lbl_servo_angles.configure(
-            text=f"Pan: {self.servo.pan_angle:+5.1f}° ({self.servo.pan_us}µs)  Tilt: {self.servo.tilt_angle:+5.1f}° ({self.servo.tilt_us}µs)"
-        )
+        self._update_servo_telemetry(self.servo.pan_angle, self.servo.tilt_angle)
+
+    def _on_camera_selected(self, choice: str):
+        try:
+            cam_idx = int(choice.split()[-1])
+        except Exception:
+            cam_idx = 0
+        self._open_source(cam_idx)
 
     def _on_reconnect_esp32(self):
         if self.servo.reconnect():
@@ -795,9 +894,7 @@ class CSRTTrackerApp:
                     frame_h=fh,
                     dt=dt,
                 )
-                self.lbl_servo_angles.configure(
-                    text=f"Pan: {pan_ang:+5.1f}° ({self.servo.pan_us}µs)  Tilt: {tilt_ang:+5.1f}° ({self.servo.tilt_us}µs)"
-                )
+                self._update_servo_telemetry(pan_ang, tilt_ang)
 
                 # Update Status and Telemetry
                 if result.success:
