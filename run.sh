@@ -22,7 +22,7 @@ fi
 # Set up virtual environment if not present
 if [ ! -d ".venv" ]; then
     echo "==> Creating virtual environment (.venv)..."
-    $PYTHON_CMD -m venv .venv
+    $PYTHON_CMD -m venv --system-site-packages .venv
     source .venv/bin/activate
     echo "==> Installing dependencies..."
     pip install --upgrade pip
@@ -33,6 +33,11 @@ if [ ! -d ".venv" ]; then
     pip install -r "$REQ_FILE"
     pip uninstall -y opencv-python 2>/dev/null || true
     touch .venv/.installed
+fi
+
+# Ensure system site packages are accessible for picamera2 / libcamera
+if [ -f ".venv/pyvenv.cfg" ]; then
+    sed -i 's/include-system-site-packages = false/include-system-site-packages = true/' .venv/pyvenv.cfg 2>/dev/null || true
 fi
 
 # Activate virtual environment

@@ -10,6 +10,7 @@ import sys
 import argparse
 from pathlib import Path
 import cv2
+from camera import open_video_capture
 from ultralytics import YOLO
 
 def run_inference(weights="runs/detect/train_yolov11n/weights/best.pt", source="dataset/previews", conf=0.4):
@@ -22,9 +23,9 @@ def run_inference(weights="runs/detect/train_yolov11n/weights/best.pt", source="
     model = YOLO(str(weights_path))
     
     # Check if webcam
-    if str(source).isdigit():
-        cap = cv2.VideoCapture(int(source))
-        print("Starting webcam live detection (Press 'q' to quit)...")
+    if str(source).isdigit() or str(source).lower() in ("picam", "rpicam", "csi"):
+        cap = open_video_capture(source)
+        print("Starting camera live detection (Press 'q' to quit)...")
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:

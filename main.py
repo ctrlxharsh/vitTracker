@@ -16,6 +16,7 @@ import sys
 import time
 import cv2
 
+from camera import open_video_capture
 from servo_controller import PanTiltServoing
 from tracker import CSRTTrackerEngine, compute_spatial_reliability_map
 from yolo_tracker import YOLOTrackerEngine, get_yolo_weights
@@ -30,10 +31,7 @@ def run_opencv_cli(
 ):
     """Standalone OpenCV window runner supporting live switching between YOLO and CSRT."""
     print(f"==> Launching AI Vision Tracker in Standalone CLI Mode on source {source}...")
-    cap = cv2.VideoCapture(source)
-    if isinstance(source, int):
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    cap = open_video_capture(source)
 
     if not cap.isOpened():
         print(f"Error: Cannot open video source {source}.")
@@ -73,7 +71,7 @@ def run_opencv_cli(
             if not ret or frame is None:
                 break
 
-            if isinstance(source, int):
+            if isinstance(source, int) and not getattr(cap, "is_picamera", False):
                 frame = cv2.flip(frame, 1)
 
             fh, fw = frame.shape[:2]

@@ -17,6 +17,7 @@ import customtkinter as ctk
 import numpy as np
 from PIL import Image, ImageTk
 
+from camera import open_video_capture
 from gui.icons import get_icon
 from servo_controller import PanTiltServoing
 from tracker import CSRTTrackerEngine, compute_spatial_reliability_map
@@ -382,7 +383,7 @@ class CSRTTrackerApp:
 
         btn_cam = ctk.CTkButton(
             src_row,
-            text="Webcam",
+            text="Camera",
             image=self.icon_camera,
             compound="left",
             command=self._init_webcam,
@@ -498,11 +499,7 @@ class CSRTTrackerApp:
         self._reset_tracker()
         self.canvas_img_id = None
 
-        cap = cv2.VideoCapture(source)
-        if isinstance(source, int):
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        cap = open_video_capture(source)
 
         if not cap.isOpened():
             err_msg = f"Cannot access video source '{source}'."
@@ -513,7 +510,7 @@ class CSRTTrackerApp:
             return
 
         self.cap = cap
-        self.source_desc = f"Webcam ({source})" if isinstance(source, int) else os.path.basename(str(source))
+        self.source_desc = getattr(cap, "source_desc", str(source))
         self.lbl_source.configure(text=f"Source: {self.source_desc}")
         self._update_mode_ui()
 
