@@ -117,10 +117,11 @@ class YOLOTrackerEngine:
         fh, fw = frame.shape[:2]
 
         try:
-            # Use model.track with persistence for continuous ID assignment
+            # Use model.track with ByteTrack for fast, lightweight multi-frame tracking
             results = self.model.track(
                 frame,
                 persist=True,
+                tracker="bytetrack.yaml",
                 conf=self.conf,
                 imgsz=self.imgsz,
                 device=self.device,

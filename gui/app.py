@@ -743,6 +743,9 @@ class CSRTTrackerApp:
     # State & Control Callbacks
     # -------------------------------------------------------------------------
     def _set_status(self, text, bg_color, text_color):
+        if getattr(self, "_last_status_text", None) == text:
+            return
+        self._last_status_text = text
         self.status_pill.configure(text=text, fg_color=bg_color, text_color=text_color)
 
     def _reset_tracker(self):
@@ -869,8 +872,9 @@ class CSRTTrackerApp:
         if dt > 0:
             self.fps_tracker.append(1.0 / dt)
 
-        # Update FPS label at 4 Hz
-        if (t_now - self.last_telemetry_time) > 0.25:
+        # Throttle UI widget telemetry to ~10 Hz (every 100ms) to prevent CustomTkinter event loop saturation
+        update_telemetry = (t_now - self.last_telemetry_time) > 0.10
+        if update_telemetry:
             self.last_telemetry_time = t_now
             if self.fps_tracker:
                 mean_fps = sum(self.fps_tracker) / len(self.fps_tracker)
@@ -902,17 +906,19 @@ class CSRTTrackerApp:
                     frame_h=fh,
                     dt=dt,
                 )
-                self._update_servo_telemetry(pan_ang, tilt_ang)
+                if update_telemetry:
+                    self._update_servo_telemetry(pan_ang, tilt_ang)
 
                 # Update Status and Telemetry
                 if result.success:
                     x, y, w, h = result.bbox
-                    self.score_bar.set(result.confidence)
-                    self.score_val_lbl.configure(
-                        text=f"{int(result.confidence * 100)}%",
-                        text_color="#00d285" if result.confidence > 0.4 else "#f59e0b",
-                    )
-                    self.lbl_bbox.configure(text=f"[{x}, {y}, {w}, {h}]")
+                    if update_telemetry:
+                        self.score_bar.set(result.confidence)
+                        self.score_val_lbl.configure(
+                            text=f"{int(result.confidence * 100)}%",
+                            text_color="#00d285" if result.confidence > 0.4 else "#f59e0b",
+                        )
+                        self.lbl_bbox.configure(text=f"[{x}, {y}, {w}, {h}]")
 
                     if self.mode == "YOLO Auto":
                         self._set_status(result.status, "#065f46", "#6ee7b7")
@@ -930,13 +936,15 @@ class CSRTTrackerApp:
                         bx, by, bw, bh = result.bbox
                         cv2.rectangle(frame, (bx, by), (bx + bw, by + bh), (0, 165, 255), 1)
                 else:
-                    if self.mode == "YOLO Auto":
+                    if update_telemetry:
                         self.score_bar.set(0.0)
-                        self.score_val_lbl.configure(text="0%", text_color="#9aa0b4")
+                        self.score_val_lbl.configure(
+                            text="0%",
+                            text_color="#9aa0b4" if self.mode == "YOLO Auto" else "#ef4444",
+                        )
+                    if self.mode == "YOLO Auto":
                         self._set_status("YOLO SCANNING FOR DRONE...", "#1e3a8a", "#93c5fd")
                     elif self.csrt_tracker.is_tracking:
-                        self.score_bar.set(0.0)
-                        self.score_val_lbl.configure(text="0%", text_color="#ef4444")
                         self._set_status("TARGET LOST - RE-SELECT", "#7f1d1d", "#fca5a5")
 
                 # Draw optical boresight center crosshair

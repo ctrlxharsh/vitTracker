@@ -10,6 +10,8 @@ Supports:
 """
 
 import os
+import threading
+import time
 import cv2
 
 
@@ -71,20 +73,62 @@ class PiCameraCapture:
 
 
 class OpenCVCapture:
-    """Wrapper around cv2.VideoCapture providing custom attributes."""
+    """
+    Threaded wrapper around cv2.VideoCapture providing non-blocking read().
+    Prevents webcam driver exposure/I/O latency from blocking the Tkinter GUI thread.
+    """
 
-    def __init__(self, cap, source_desc: str = "Webcam"):
+    def __init__(self, cap, source_desc: str = "Webcam", is_live: bool = True):
         self.cap = cap
         self.is_picamera = False
         self.source_desc = source_desc
+        self.is_live = is_live
+        self._lock = threading.Lock()
+        self._running = True
+        self._latest_frame = None
+        self._latest_ret = False
+
+        # Pre-warm with initial frame
+        if self.cap.isOpened():
+            ret, frame = self.cap.read()
+            if ret and frame is not None:
+                self._latest_ret = True
+                self._latest_frame = frame
+
+        if self.is_live:
+            self._thread = threading.Thread(target=self._reader_loop, daemon=True, name="CameraReader")
+            self._thread.start()
+        else:
+            self._thread = None
+
+    def _reader_loop(self):
+        while self._running:
+            if not self.cap.isOpened():
+                time.sleep(0.05)
+                continue
+            ret, frame = self.cap.read()
+            if ret and frame is not None:
+                with self._lock:
+                    self._latest_ret = True
+                    self._latest_frame = frame
+            else:
+                time.sleep(0.005)
 
     def isOpened(self) -> bool:
         return self.cap.isOpened()
 
     def read(self):
+        if self.is_live:
+            with self._lock:
+                if self._latest_frame is not None:
+                    return self._latest_ret, self._latest_frame.copy()
+                return False, None
         return self.cap.read()
 
     def release(self):
+        self._running = False
+        if self._thread is not None and self._thread.is_alive():
+            self._thread.join(timeout=0.2)
         return self.cap.release()
 
     def get(self, prop: int) -> float:
@@ -158,7 +202,7 @@ def open_video_capture(source=0, width: int = 1280, height: int = 720):
             # Reopen standard capture if picamera2 also failed
             cap = cv2.VideoCapture(actual_source)
 
-        return OpenCVCapture(cap, source_desc=f"Webcam ({cam_index})")
+        return OpenCVCapture(cap, source_desc=f"Webcam ({cam_index})", is_live=True)
     else:
-        return OpenCVCapture(cap, source_desc=os.path.basename(str(source)))
+        return OpenCVCapture(cap, source_desc=os.path.basename(str(source)), is_live=False)
 
