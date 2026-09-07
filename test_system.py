@@ -61,13 +61,13 @@ def test_pantilt_servoing():
     frame_w, frame_h = 640, 480
     # Center is at (320, 240)
     # Target at (400, 300) -> right and below center
-    # PAN_SIGN is -1, so err_x = +80 px -> pan should move in negative direction
-    # TILT_SIGN is +1, so err_y = +60 px -> tilt should move in positive direction
+    # PAN_SIGN is +1, so err_x = +80 px -> pan should move in positive direction (toward target)
+    # TILT_SIGN is -1, so err_y = +60 px -> tilt should move in negative direction (down toward target)
     for _ in range(5):
         pan, tilt = pt.update(center=(400.0, 300.0), frame_w=frame_w, frame_h=frame_h, dt=0.02)
 
-    assert pan < 0.0, f"Expected pan < 0 for target to the right, got {pan}"
-    assert tilt > 0.0, f"Expected tilt > 0 for target below center, got {tilt}"
+    assert pan > 0.0, f"Expected pan > 0 for target to the right, got {pan}"
+    assert tilt < 0.0, f"Expected tilt < 0 for target below center, got {tilt}"
 
     # Recenter test
     pt.center_servos()

@@ -180,8 +180,8 @@ def run_opencv_cli(
             # Telemetry HUD
             servo_status = "ENABLED" if servo.enabled else "DISABLED"
             mode_desc = "HW" if servo.is_hardware else "MOCK"
-            hud_text = f"[{mode.upper()}] SERVO [{mode_desc}|{servo_status}] Pan: {pan_ang:+5.1f} deg | Tilt: {tilt_ang:+5.1f} deg | Press [T] switch"
-            cv2.putText(frame, hud_text, (16, fh - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (240, 240, 240), 1)
+            hud_text = f"[{mode.upper()}] [{mode_desc}|{servo_status}] Pan: {pan_ang:+5.1f}d (s:{servo.pan_sign:+d}) | Tilt: {tilt_ang:+5.1f}d (s:{servo.tilt_sign:+d}) | [P] PanInv [I] TiltInv"
+            cv2.putText(frame, hud_text, (16, fh - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (240, 240, 240), 1)
 
             cv2.imshow(win_name, frame)
             key = cv2.waitKey(1) & 0xFF
@@ -204,6 +204,12 @@ def run_opencv_cli(
                 servo.center_servos()
             elif key == ord("s"):
                 servo.enabled = not servo.enabled
+            elif key == ord("p"):
+                servo.pan_sign = -servo.pan_sign
+                print(f"Pan sign toggled to: {servo.pan_sign:+d}")
+            elif key == ord("i"):
+                servo.tilt_sign = -servo.tilt_sign
+                print(f"Tilt sign toggled to: {servo.tilt_sign:+d}")
             elif key == ord("m"):
                 show_spatial_map = not show_spatial_map
             elif key == ord(" "):
@@ -235,16 +241,16 @@ def main():
     parser.add_argument("--cv-only", action="store_true", help="Launch in standalone OpenCV window without CustomTkinter GUI")
     parser.add_argument("--pan-pin", type=int, default=17, help="GPIO pin for Pan servo (default: 17)")
     parser.add_argument("--tilt-pin", type=int, default=27, help="GPIO pin for Tilt servo (default: 27)")
-    parser.add_argument("--invert-pan", action="store_true", help="Invert pan servo direction")
-    parser.add_argument("--invert-tilt", action="store_true", help="Invert tilt servo direction")
+    parser.add_argument("--invert-pan", action="store_true", help="Invert pan servo direction (default: pan_sign=+1)")
+    parser.add_argument("--invert-tilt", action="store_true", help="Invert tilt servo direction (default: tilt_sign=-1)")
     parser.add_argument("--no-servo", action="store_true", help="Disable servo controller")
     parser.add_argument("--mock-servo", action="store_true", help="Force mock servo mode (skip pigpio hardware)")
     args = parser.parse_args()
 
     source = int(args.source) if args.source.isdigit() else args.source
 
-    pan_sign = 1 if args.invert_pan else -1
-    tilt_sign = -1 if args.invert_tilt else 1
+    pan_sign = -1 if args.invert_pan else 1
+    tilt_sign = 1 if args.invert_tilt else -1
 
     servo = PanTiltServoing(
         pan_gpio=args.pan_pin,

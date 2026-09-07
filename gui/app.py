@@ -82,8 +82,8 @@ class CSRTTrackerApp:
         self.var_trajectory = tk.BooleanVar(value=True)
         self.var_boresight = tk.BooleanVar(value=True)
         self.var_servo_active = tk.BooleanVar(value=True)
-        self.var_inv_pan = tk.BooleanVar(value=(self.servo.pan_sign > 0))
-        self.var_inv_tilt = tk.BooleanVar(value=(self.servo.tilt_sign < 0))
+        self.var_inv_pan = tk.BooleanVar(value=(self.servo.pan_sign < 0))
+        self.var_inv_tilt = tk.BooleanVar(value=(self.servo.tilt_sign > 0))
 
         self._load_icons()
         self._build_ui()
@@ -544,10 +544,10 @@ class CSRTTrackerApp:
         self.servo.enabled = self.var_servo_active.get()
 
     def _on_inv_pan_toggle(self):
-        self.servo.pan_sign = 1 if self.var_inv_pan.get() else -1
+        self.servo.pan_sign = -1 if self.var_inv_pan.get() else 1
 
     def _on_inv_tilt_toggle(self):
-        self.servo.tilt_sign = -1 if self.var_inv_tilt.get() else 1
+        self.servo.tilt_sign = 1 if self.var_inv_tilt.get() else -1
 
     def _on_recenter_servos(self):
         self.servo.center_servos()
