@@ -7,4 +7,4 @@ pillow>=9.0.0
 tkinter-icons[lucide]>=1.1.0
 numpy>=1.23.0
 huggingface_hub>=0.20.0
-pigpio>=1.78; sys_platform == "linux"
+pyserial>=3.5

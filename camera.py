@@ -94,7 +94,7 @@ class OpenCVCapture:
         return self.cap.set(prop, val)
 
 
-def open_video_capture(source=0, width: int = 640, height: int = 480):
+def open_video_capture(source=0, width: int = 1280, height: int = 720):
     """
     Opens video stream from Raspberry Pi CSI camera, USB webcam, or video file.
     Returns capture object with cv2.VideoCapture compatible API and .is_picamera attribute.

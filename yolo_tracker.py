@@ -54,6 +54,19 @@ def get_yolo_weights(repo_id: str = "harsh-awasthi/bluemockdrone", filename: str
         raise RuntimeError(f"Could not obtain YOLO weights: {e}")
 
 
+def get_optimal_device() -> str:
+    """Auto-detects the highest-performance compute device (Apple Silicon MPS, NVIDIA CUDA, or CPU)."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda"
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            return "mps"
+    except Exception:
+        pass
+    return "cpu"
+
+
 class YOLOTrackerEngine:
     """
     Autonomous YOLO Detection and Tracking engine.
@@ -65,7 +78,8 @@ class YOLOTrackerEngine:
         weights_path: Optional[str] = None,
         conf: float = 0.80,
         max_trajectory: int = 40,
-        imgsz: int = 320,
+        imgsz: int = 640,
+        device: Optional[str] = None,
     ):
         self.conf = conf
         self.weights_path = weights_path or get_yolo_weights()
@@ -73,13 +87,21 @@ class YOLOTrackerEngine:
         self.active_track_id: Optional[int] = None
         self.last_bbox: Optional[Tuple[int, int, int, int]] = None
         self.imgsz = imgsz
+        self.device = device or get_optimal_device()
 
-        print(f"Loading YOLO model from: {self.weights_path}...")
+        print(f"Loading YOLO model on [{self.device.upper()}]: {self.weights_path}...")
         from ultralytics import YOLO
 
         self.model = YOLO(self.weights_path)
         self.class_names = self.model.names
-        print(f"YOLO model ready. Detected classes: {self.class_names}")
+        print(f"YOLO model ready on [{self.device.upper()}] (imgsz={self.imgsz}). Detected classes: {self.class_names}")
+
+        # Warm up GPU/MPS kernels to eliminate initial runtime compilation latency
+        try:
+            dummy = np.zeros((self.imgsz, self.imgsz, 3), dtype=np.uint8)
+            self.model.predict(dummy, imgsz=self.imgsz, device=self.device, verbose=False)
+        except Exception:
+            pass
 
     def reset(self):
         """Reset active track identity and trajectory."""
@@ -97,12 +119,21 @@ class YOLOTrackerEngine:
         try:
             # Use model.track with persistence for continuous ID assignment
             results = self.model.track(
-                frame, persist=True, conf=self.conf, imgsz=self.imgsz, verbose=False
+                frame,
+                persist=True,
+                conf=self.conf,
+                imgsz=self.imgsz,
+                device=self.device,
+                verbose=False,
             )
         except Exception:
             # Fallback to predict if tracker algorithm is initializing
             results = self.model.predict(
-                frame, conf=self.conf, imgsz=self.imgsz, verbose=False
+                frame,
+                conf=self.conf,
+                imgsz=self.imgsz,
+                device=self.device,
+                verbose=False,
             )
 
         if not results or len(results) == 0:

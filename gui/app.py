@@ -81,6 +81,7 @@ class CSRTTrackerApp:
         self.var_pip_map = tk.BooleanVar(value=True)
         self.var_trajectory = tk.BooleanVar(value=True)
         self.var_boresight = tk.BooleanVar(value=True)
+        self.var_mirror = tk.BooleanVar(value=False)
         self.var_servo_active = tk.BooleanVar(value=True)
         self.var_inv_pan = tk.BooleanVar(value=(self.servo.pan_sign < 0))
         self.var_inv_tilt = tk.BooleanVar(value=(self.servo.tilt_sign > 0))
@@ -245,8 +246,8 @@ class CSRTTrackerApp:
             text_color="#9aa0b4",
         ).pack(side="left")
 
-        hw_pins = f"GPIO {getattr(self.servo, 'pan_gpio', 17)}/{getattr(self.servo, 'tilt_gpio', 27)}"
-        hw_text = f"HARDWARE ({hw_pins})" if self.servo.is_hardware else "MOCK (SIMULATION)"
+        hw_port = getattr(self.servo, 'active_port', None)
+        hw_text = f"ESP32: {hw_port}" if self.servo.is_hardware else "ESP32: MOCK (SIMULATED)"
         hw_bg = "#065f46" if self.servo.is_hardware else "#374151"
         hw_fg = "#6ee7b7" if self.servo.is_hardware else "#cbd0df"
 
@@ -263,8 +264,8 @@ class CSRTTrackerApp:
 
         self.lbl_servo_angles = ctk.CTkLabel(
             servo_card,
-            text="Pan: +0.0°   Tilt: +0.0°",
-            font=ctk.CTkFont(size=12, family="Courier, monospace", weight="bold"),
+            text="Pan: +0.0° (1500µs)  Tilt: +0.0° (1500µs)",
+            font=ctk.CTkFont(size=11, family="Courier, monospace", weight="bold"),
             text_color="#38bdf8",
         )
         self.lbl_servo_angles.pack(anchor="w", padx=10, pady=1)
@@ -307,9 +308,14 @@ class CSRTTrackerApp:
         )
         cb_inv_tilt.pack(side="left")
 
+        btn_servo_row = ctk.CTkFrame(servo_card, fg_color="transparent")
+        btn_servo_row.pack(fill="x", padx=10, pady=(0, 6))
+        btn_servo_row.grid_columnconfigure(0, weight=1)
+        btn_servo_row.grid_columnconfigure(1, weight=1)
+
         btn_recenter = ctk.CTkButton(
-            servo_card,
-            text="Recenter Servos",
+            btn_servo_row,
+            text="Center Servos",
             command=self._on_recenter_servos,
             fg_color="#1e293b",
             hover_color="#334155",
@@ -317,7 +323,19 @@ class CSRTTrackerApp:
             corner_radius=6,
             font=ctk.CTkFont(size=11),
         )
-        btn_recenter.pack(fill="x", padx=10, pady=(0, 6))
+        btn_recenter.grid(row=0, column=0, sticky="ew", padx=(0, 2))
+
+        btn_reconnect = ctk.CTkButton(
+            btn_servo_row,
+            text="Reconnect ESP32",
+            command=self._on_reconnect_esp32,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            height=24,
+            corner_radius=6,
+            font=ctk.CTkFont(size=11),
+        )
+        btn_reconnect.grid(row=0, column=1, sticky="ew", padx=(2, 0))
 
         # Telemetry Card
         self.telemetry_card = ctk.CTkFrame(self.sidebar, fg_color="#21232a", corner_radius=10)
@@ -434,6 +452,15 @@ class CSRTTrackerApp:
             font=ctk.CTkFont(size=11),
         )
         sw4.pack(anchor="w", pady=1)
+
+        sw_mirror = ctk.CTkSwitch(
+            toggles_frame,
+            text="Mirror View",
+            variable=self.var_mirror,
+            progress_color="#0284c7",
+            font=ctk.CTkFont(size=11),
+        )
+        sw_mirror.pack(anchor="w", pady=1)
 
         # Source Switchers
         src_row = ctk.CTkFrame(self.sidebar, fg_color="transparent")
@@ -552,8 +579,22 @@ class CSRTTrackerApp:
     def _on_recenter_servos(self):
         self.servo.center_servos()
         self.lbl_servo_angles.configure(
-            text=f"Pan: {self.servo.pan_angle:+5.1f}°   Tilt: {self.servo.tilt_angle:+5.1f}°"
+            text=f"Pan: {self.servo.pan_angle:+5.1f}° ({self.servo.pan_us}µs)  Tilt: {self.servo.tilt_angle:+5.1f}° ({self.servo.tilt_us}µs)"
         )
+
+    def _on_reconnect_esp32(self):
+        if self.servo.reconnect():
+            self.servo_hw_badge.configure(
+                text=f"ESP32: {self.servo.active_port}",
+                fg_color="#065f46",
+                text_color="#6ee7b7",
+            )
+        else:
+            self.servo_hw_badge.configure(
+                text="ESP32: NOT DETECTED (MOCK)",
+                fg_color="#7f1d1d",
+                text_color="#fca5a5",
+            )
 
     # -------------------------------------------------------------------------
     # Stream Management
@@ -731,7 +772,7 @@ class CSRTTrackerApp:
         if not self.is_paused and self.cap is not None and self.cap.isOpened():
             ret, frame = self.cap.read()
             if ret and frame is not None:
-                if self.source_desc.startswith("Webcam"):
+                if self.var_mirror.get():
                     frame = cv2.flip(frame, 1)
 
                 self.last_clean_frame = frame.copy()
@@ -755,7 +796,7 @@ class CSRTTrackerApp:
                     dt=dt,
                 )
                 self.lbl_servo_angles.configure(
-                    text=f"Pan: {pan_ang:+5.1f}°   Tilt: {tilt_ang:+5.1f}°"
+                    text=f"Pan: {pan_ang:+5.1f}° ({self.servo.pan_us}µs)  Tilt: {tilt_ang:+5.1f}° ({self.servo.tilt_us}µs)"
                 )
 
                 # Update Status and Telemetry

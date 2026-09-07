@@ -80,13 +80,6 @@ if ! python -c "import cv2; assert hasattr(cv2, 'TrackerCSRT_create')" &>/dev/nu
     pip install --force-reinstall --no-deps "opencv-contrib-python>=4.10.0" 2>/dev/null || true
 fi
 
-# Ensure pigpio daemon is running on Linux for hardware servo PWM
-if [ "$(uname -s)" == "Linux" ] && command -v pigpiod &>/dev/null; then
-    if ! pgrep -x "pigpiod" &>/dev/null; then
-        echo "==> Starting pigpio daemon for hardware servo control..."
-        sudo pigpiod 2>/dev/null || true
-    fi
-fi
 
 # Launch AI Vision Tracker with Pan-Tilt Servoing directly
 exec python main.py "$@"

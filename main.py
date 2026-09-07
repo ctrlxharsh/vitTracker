@@ -179,8 +179,8 @@ def run_opencv_cli(
 
             # Telemetry HUD
             servo_status = "ENABLED" if servo.enabled else "DISABLED"
-            mode_desc = "HW" if servo.is_hardware else "MOCK"
-            hud_text = f"[{mode.upper()}] [{mode_desc}|{servo_status}] Pan: {pan_ang:+5.1f}d (s:{servo.pan_sign:+d}) | Tilt: {tilt_ang:+5.1f}d (s:{servo.tilt_sign:+d}) | [P] PanInv [I] TiltInv"
+            mode_desc = f"ESP32:{servo.port_name}" if servo.is_hardware else "ESP32:MOCK"
+            hud_text = f"[{mode.upper()}] [{mode_desc}|{servo_status}] Pan: {pan_ang:+5.1f}d ({servo.pan_us}us) | Tilt: {tilt_ang:+5.1f}d ({servo.tilt_us}us) | [P] PanInv [I] TiltInv"
             cv2.putText(frame, hud_text, (16, fh - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (240, 240, 240), 1)
 
             cv2.imshow(win_name, frame)
@@ -239,12 +239,12 @@ def main():
     parser.add_argument("--weights", type=str, default=None, help="Path to custom YOLO weights (.pt)")
     parser.add_argument("--conf", type=float, default=0.80, help="Confidence threshold for YOLO (default: 0.80)")
     parser.add_argument("--cv-only", action="store_true", help="Launch in standalone OpenCV window without CustomTkinter GUI")
-    parser.add_argument("--pan-pin", type=int, default=17, help="GPIO pin for Pan servo (default: 17)")
-    parser.add_argument("--tilt-pin", type=int, default=27, help="GPIO pin for Tilt servo (default: 27)")
+    parser.add_argument("--port", type=str, default="auto", help="Serial port for NodeMCU ESP32 (e.g. /dev/cu.usbserial-0001 or 'auto')")
+    parser.add_argument("--baud", type=int, default=115200, help="Serial baud rate for ESP32 (default: 115200)")
     parser.add_argument("--invert-pan", action="store_true", help="Invert pan servo direction (default: pan_sign=+1)")
     parser.add_argument("--invert-tilt", action="store_true", help="Invert tilt servo direction (default: tilt_sign=-1)")
     parser.add_argument("--no-servo", action="store_true", help="Disable servo controller")
-    parser.add_argument("--mock-servo", action="store_true", help="Force mock servo mode (skip pigpio hardware)")
+    parser.add_argument("--mock-servo", action="store_true", help="Force mock servo mode (skip ESP32 serial connection)")
     args = parser.parse_args()
 
     source = int(args.source) if args.source.isdigit() else args.source
@@ -253,8 +253,8 @@ def main():
     tilt_sign = 1 if args.invert_tilt else -1
 
     servo = PanTiltServoing(
-        pan_gpio=args.pan_pin,
-        tilt_gpio=args.tilt_pin,
+        serial_port=args.port,
+        baud=args.baud,
         pan_sign=pan_sign,
         tilt_sign=tilt_sign,
         force_mock=args.mock_servo,
