@@ -15,21 +15,23 @@ fi
 if [ ! -d ".venv" ]; then
     echo "==> Creating virtual environment (.venv)..."
     $PYTHON_CMD -m venv .venv
+    source .venv/bin/activate
+    echo "==> Installing dependencies..."
+    pip install --upgrade pip --quiet
+    pip install -r requirements.txt --quiet
+    touch .venv/.installed
 fi
 
 # Activate virtual environment
 source .venv/bin/activate
 
-# Install requirements
-echo "==> Verifying dependencies..."
-pip install --upgrade pip --quiet
-pip install -r requirements.txt --quiet
-
-# Launch tracker
-if [ "$1" == "--vittrack" ] || [ "$1" == "-v" ]; then
-    echo "==> Launching OpenCV VitTrack (Lightweight/Edge mode)..."
-    python track_vittrack.py
-else
-    echo "==> Launching EdgeTAM Tracker (Auto-GPU accelerated)..."
-    python track.py
+# Optional explicit dependency check with --install flag
+if [ "$1" == "--install" ]; then
+    echo "==> Verifying dependencies..."
+    pip install -r requirements.txt --quiet
+    touch .venv/.installed
+    shift
 fi
+
+# Launch CSRT Tracker with Pan-Tilt Servoing directly
+exec python main.py "$@"

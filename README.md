@@ -1,72 +1,69 @@
-# vitTracker
+# AI Vision Tracker & Pan-Tilt Visual Servoing
 
-Real-time vision tracking from live camera feeds with automatic GPU acceleration.
-
-Supports:
-- **EdgeTAM** ([`yonigozlan/EdgeTAM-hf`](https://huggingface.co/yonigozlan/EdgeTAM-hf)): Track Anything Model on edge devices. Segment & track objects with a single click or bounding box.
-- **VitTrack**: Ultra-fast, lightweight Vision Transformer tracker running via OpenCV DNN (ideal for Raspberry Pi and low-spec CPUs).
+Real-time vision tracking and autonomous target acquisition for drones and ground mounts.
+Features dual tracking engines with closed-loop 2-DoF Pan-Tilt visual servoing.
 
 ---
 
-## Hardware Acceleration
+## Dual Tracking Engines
 
-The tracker automatically detects the best available hardware engine:
-- **NVIDIA GPU**: CUDA acceleration with `bfloat16` / `float16`.
-- **Apple Silicon (Mac M1/M2/M3/M4)**: Metal Performance Shaders (`MPS`) with `bfloat16`.
-- **CPU Fallback**: Standard `float32` execution on any x86 or ARM CPU.
+1. **YOLO Autonomous Detection & Tracking**:
+   - Uses YOLO model (`harsh-awasthi/bluemockdrone`, weights `best.pt`).
+   - Automatically detects and tracks the target blue mock drone in the video feed without any manual intervention.
+   - Persistent tracking across frames using ByteTrack / BoT-SORT ID persistence.
+   - Automatically drives pan-tilt servos toward the detected object.
+
+2. **OpenCV CSRT Manual Selection**:
+   - Discriminative correlation filter with Bayes color likelihood and Epanechnikov 2D spatial reliability maps.
+   - Sudden-jerk re-acquisition via projected velocity momentum and template matching.
+   - Click-and-drag ROI selection for arbitrary objects.
 
 ---
 
-## Quick Start (Any Device)
+## Controls & Mode Switching
 
-### Option 1: One-Click Bash Script (Linux & macOS)
+- **In the GUI**:
+  - Use the **`TRACKING ENGINE`** segmented button in the sidebar to toggle between **`YOLO Auto`** and **`CSRT Manual`**.
+  - Or press **`t`** on the keyboard at any time to switch instantly between engines.
+- **In CLI Mode (`--cv-only`)**:
+  - Press **`t`** to toggle between YOLO and CSRT.
+  - Press **`SPACE`** to pause (YOLO) or select bounding box (CSRT).
+  - Press **`c`** to reset tracker and recenter servos.
+  - Press **`s`** to toggle servo output on/off.
+  - Press **`q`** or **`ESC`** to quit.
 
-Clone and run:
+---
+
+## Quick Start
+
+### 1. Launch with GUI (YOLO mode default)
 ```bash
-git clone https://github.com/ctrlxharsh/vitTracker.git
-cd vitTracker
-chmod +x run.sh
 ./run.sh
 ```
-`run.sh` will automatically create a virtual environment (`.venv`), install dependencies, and launch the tracker.
-
-For the lightweight CPU/Raspberry Pi mode:
+*or directly with python:*
 ```bash
-./run.sh --vittrack
+source .venv/bin/activate
+python main.py
+```
+
+### 2. Launch directly in CSRT mode
+```bash
+python main.py --mode csrt
+```
+
+### 3. Launch Standalone OpenCV Window (Lightweight / No Tkinter)
+```bash
+python main.py --cv-only
+```
+
+### 4. Custom Weights / Source
+```bash
+python main.py --weights best.pt --source path/to/video.mp4
 ```
 
 ---
 
-### Option 2: Manual Setup
-
-1. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-2. **Run EdgeTAM Tracker (Default)**:
-   ```bash
-   python track.py
-   ```
-
-3. **Run OpenCV VitTrack (Lightweight / Raspberry Pi)**:
-   ```bash
-   python track_vittrack.py
-   ```
-
----
-
-## Controls
-
-| Action | Control |
-|---|---|
-| **Point-to-Track** | Left Click directly on any object |
-| **Box-to-Track** | Press `SPACE` to freeze frame, drag crosshairs, and press `ENTER`/`SPACE` |
-| **Clear Tracker** | Press `c` |
-| **Quit** | Press `q` or `ESC` |
-
----
-
-## License
-
-Apache 2.0 / MIT
+## Hardware Servoing (Raspberry Pi)
+- **Pan (Azimuth)**: GPIO 12 (PWM0)
+- **Tilt (Elevation)**: GPIO 13 (PWM1)
+- Automatic mock/simulation fallback on macOS/Windows/Linux without pigpiod.

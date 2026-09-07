@@ -20,4 +20,12 @@ Thumbs.db
 
 # Models / Cache
 *.onnx
+*.pt
 .cache/
+runs/
+
+# Datasets and generated assets
+dataset/
+backgrounds/
+cutouts/
+blueObjectDetection.coco/
