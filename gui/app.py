@@ -41,7 +41,7 @@ class CSRTTrackerApp:
 
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
-        self.root.config(cursor="arrow")
+        self.root.config(cursor="")
 
         # Subsystems
         self.mode = default_mode  # "YOLO Auto" or "CSRT Manual"
@@ -557,10 +557,14 @@ class CSRTTrackerApp:
         src_row.grid_columnconfigure(0, weight=2)
         src_row.grid_columnconfigure(1, weight=1)
 
-        self.cam_options = ["Camera 0", "Camera 1", "Camera 2", "Camera 3"]
+        from camera import get_available_cameras
+        self.available_cams = get_available_cameras()
+        self.cam_dict = {label: idx for idx, label in self.available_cams}
+        cam_labels = [label for _, label in self.available_cams]
+
         self.opt_camera = ctk.CTkOptionMenu(
             src_row,
-            values=self.cam_options,
+            values=cam_labels,
             command=self._on_camera_selected,
             fg_color="#1f2937",
             button_color="#374151",
@@ -569,7 +573,8 @@ class CSRTTrackerApp:
             corner_radius=6,
             font=ctk.CTkFont(size=11),
         )
-        self.opt_camera.set("Camera 0")
+        if cam_labels:
+            self.opt_camera.set(cam_labels[0])
         self.opt_camera.grid(row=0, column=0, sticky="ew", padx=(0, 2))
 
         btn_file = ctk.CTkButton(
@@ -610,7 +615,6 @@ class CSRTTrackerApp:
             self.main_frame,
             bg="#0d0e12",
             highlightthickness=0,
-            cursor="arrow",
         )
         self.video_canvas.grid(row=0, column=0, sticky="nsew")
 
@@ -683,10 +687,7 @@ class CSRTTrackerApp:
         self._update_servo_telemetry(self.servo.pan_angle, self.servo.tilt_angle)
 
     def _on_camera_selected(self, choice: str):
-        try:
-            cam_idx = int(choice.split()[-1])
-        except Exception:
-            cam_idx = 0
+        cam_idx = getattr(self, "cam_dict", {}).get(choice, 0)
         self._open_source(cam_idx)
 
     def _on_reconnect_esp32(self):
@@ -709,9 +710,11 @@ class CSRTTrackerApp:
     def _open_source(self, source):
         if self.cap is not None:
             self.cap.release()
+            self.cap = None
 
         self._reset_tracker()
         self.canvas_img_id = None
+        self.last_frame = None
 
         cap = open_video_capture(source)
 
@@ -721,11 +724,27 @@ class CSRTTrackerApp:
             self._set_status("NO FEED - SELECT VIDEO FILE", "#7f1d1d", "#fca5a5")
             self.lbl_source.configure(text="Source: Unavailable")
             self.cap = None
+            self._render_placeholder()
             return
 
         self.cap = cap
         self.source_desc = getattr(cap, "source_desc", str(source))
         self.lbl_source.configure(text=f"Source: {self.source_desc}")
+
+        # Sync active camera in dropdown
+        cam_idx = getattr(cap, "_cam_index", -1)
+        if hasattr(self, "opt_camera") and hasattr(self, "available_cams"):
+            for idx, label in self.available_cams:
+                if idx == cam_idx:
+                    self.opt_camera.set(label)
+                    break
+
+        # Display first frame immediately to eliminate startup blank delay
+        ret, frame = self.cap.read()
+        if ret and frame is not None:
+            self.last_frame = frame
+            self._render_to_canvas(frame)
+
         self._update_mode_ui()
 
     def _init_webcam(self):
@@ -959,7 +978,7 @@ class CSRTTrackerApp:
         # Render to canvas
         if self.last_frame is not None:
             self._render_to_canvas(self.last_frame)
-        elif self.cap is None or not self.cap.isOpened():
+        else:
             self._render_placeholder()
 
         if self.is_running:

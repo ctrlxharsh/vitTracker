@@ -9,7 +9,9 @@ Supports:
 3. Video file sources.
 """
 
+import json
 import os
+import subprocess
 import threading
 import time
 import cv2
@@ -78,22 +80,27 @@ class OpenCVCapture:
     Prevents webcam driver exposure/I/O latency from blocking the Tkinter GUI thread.
     """
 
-    def __init__(self, cap, source_desc: str = "Webcam", is_live: bool = True):
+    def __init__(self, cap, source_desc: str = "Webcam", is_live: bool = True, cam_index: int = 0):
         self.cap = cap
         self.is_picamera = False
         self.source_desc = source_desc
         self.is_live = is_live
+        self._cam_index = cam_index
         self._lock = threading.Lock()
         self._running = True
         self._latest_frame = None
         self._latest_ret = False
 
-        # Pre-warm with initial frame
+        # Pre-warm with initial frames (USB webcams often deliver a black frame on first read)
         if self.cap.isOpened():
-            ret, frame = self.cap.read()
-            if ret and frame is not None:
-                self._latest_ret = True
-                self._latest_frame = frame
+            for _ in range(5):
+                ret, frame = self.cap.read()
+                if ret and frame is not None:
+                    self._latest_ret = True
+                    self._latest_frame = frame
+                    if frame.mean() > 10:
+                        break
+                time.sleep(0.03)
 
         if self.is_live:
             self._thread = threading.Thread(target=self._reader_loop, daemon=True, name="CameraReader")
@@ -138,7 +145,55 @@ class OpenCVCapture:
         return self.cap.set(prop, val)
 
 
-def open_video_capture(source=0, width: int = 1280, height: int = 720):
+def get_available_cameras():
+    """Returns list of (index, display_label) for all active cameras without out-of-bound errors."""
+    cameras = []
+    cam_names = []
+    try:
+        res = subprocess.run(
+            ["system_profiler", "SPCameraDataType", "-json"],
+            capture_output=True,
+            text=True,
+            timeout=1.5,
+        )
+        data = json.loads(res.stdout)
+        for item in data.get("SPCameraDataType", []):
+            name = item.get("_name", "")
+            if name:
+                cam_names.append(name)
+    except Exception:
+        pass
+
+    num_cams = len(cam_names) if cam_names else 2
+    for idx in range(num_cams):
+        cap = cv2.VideoCapture(idx)
+        if cap.isOpened():
+            ret, frame = cap.read()
+            cap.release()
+            if ret and frame is not None:
+                h, w = frame.shape[:2]
+                name = cam_names[idx] if idx < len(cam_names) else f"Camera {idx}"
+                label = f"{name} ({w}x{h})"
+                cameras.append((idx, label))
+    if not cameras:
+        cameras.append((0, "Camera 0 [Default]"))
+    return cameras
+
+
+def find_best_camera_source() -> int:
+    """
+    Auto-detects the most suitable camera index.
+    Prioritizes external USB webcams (typically index 1+) over built-in laptop cameras (index 0).
+    """
+    cams = get_available_cameras()
+    # If any external camera (index > 0) exists, prioritize it
+    for idx, _ in cams:
+        if idx > 0:
+            return idx
+    return 0
+
+
+def open_video_capture(source="auto", width: int = 1280, height: int = 720):
     """
     Opens video stream from Raspberry Pi CSI camera, USB webcam, or video file.
     Returns capture object with cv2.VideoCapture compatible API and .is_picamera attribute.
@@ -146,7 +201,10 @@ def open_video_capture(source=0, width: int = 1280, height: int = 720):
     is_cam_index = False
     cam_index = 0
 
-    if isinstance(source, int):
+    if source is None or str(source).lower() in ("auto", "none", ""):
+        cam_index = find_best_camera_source()
+        is_cam_index = True
+    elif isinstance(source, int):
         is_cam_index = True
         cam_index = source
     elif isinstance(source, str):
@@ -202,7 +260,7 @@ def open_video_capture(source=0, width: int = 1280, height: int = 720):
             # Reopen standard capture if picamera2 also failed
             cap = cv2.VideoCapture(actual_source)
 
-        return OpenCVCapture(cap, source_desc=f"Webcam ({cam_index})", is_live=True)
+        return OpenCVCapture(cap, source_desc=f"Webcam ({cam_index})", is_live=True, cam_index=cam_index)
     else:
-        return OpenCVCapture(cap, source_desc=os.path.basename(str(source)), is_live=False)
+        return OpenCVCapture(cap, source_desc=os.path.basename(str(source)), is_live=False, cam_index=-1)
 

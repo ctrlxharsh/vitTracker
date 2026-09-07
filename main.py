@@ -234,7 +234,7 @@ def run_opencv_cli(
 
 def main():
     parser = argparse.ArgumentParser(description="AI Vision Tracker & Visual Servoing (YOLO Drone & CSRT)")
-    parser.add_argument("--source", type=str, default="0", help="Video source (camera index e.g. 0, or video file path)")
+    parser.add_argument("--source", type=str, default="auto", help="Video source (camera index e.g. 0, 'auto' for best camera, or video file path)")
     parser.add_argument("--mode", type=str, choices=["yolo", "csrt"], default="yolo", help="Initial tracking mode (yolo or csrt)")
     parser.add_argument("--weights", type=str, default=None, help="Path to custom YOLO weights (.pt)")
     parser.add_argument("--conf", type=float, default=0.80, help="Confidence threshold for YOLO (default: 0.80)")
@@ -247,7 +247,14 @@ def main():
     parser.add_argument("--mock-servo", action="store_true", help="Force mock servo mode (skip ESP32 serial connection)")
     args = parser.parse_args()
 
-    source = int(args.source) if args.source.isdigit() else args.source
+    if args.source.lower() in ("auto", "none"):
+        from camera import find_best_camera_source
+        source = find_best_camera_source()
+        print(f"Auto-detected primary camera source: Index {source}")
+    elif args.source.isdigit():
+        source = int(args.source)
+    else:
+        source = args.source
 
     pan_sign = -1 if args.invert_pan else 1
     tilt_sign = 1 if args.invert_tilt else -1
