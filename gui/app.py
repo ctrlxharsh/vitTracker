@@ -90,9 +90,6 @@ class CSRTTrackerApp:
         self._build_ui()
         self._bind_events()
 
-        # Open Video Stream
-        self._open_source(video_source)
-
         # Threaded Tracking Subsystem for High-FPS Servo Servoing
         self._track_lock = threading.Lock()
         self._worker_frame = None
@@ -100,6 +97,9 @@ class CSRTTrackerApp:
         self._worker_busy = False
         self._tracker_thread = threading.Thread(target=self._tracker_worker, daemon=True)
         self._tracker_thread.start()
+
+        # Open Video Stream
+        self._open_source(video_source)
 
         # Start Processing Loop
         self.root.after(10, self._process_frame)

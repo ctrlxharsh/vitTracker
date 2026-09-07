@@ -128,7 +128,7 @@ class TrackingResult:
     bbox: Optional[Tuple[int, int, int, int]]
     center: Optional[Tuple[float, float]]
     confidence: float
-    status: str
+    status: str = "IDLE"
     is_recovered: bool = False
     is_recovering: bool = False
 
