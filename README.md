@@ -68,18 +68,20 @@ python main.py --weights best.pt --source path/to/video.mp4
 
 ### Raspberry Pi Installation Options
 
-1. **Lightweight (CSRT & Servos only — no PyTorch/CUDA bloat, ~50 MB)**:
+1. **Full YOLO Auto-Detection (Default)**:
+   ```bash
+   ./run.sh
+   # or manually:
+   pip install -r requirements.txt
+   python main.py
+   ```
+   *(Note: On Linux aarch64, pip installs the official ARM64 PyTorch wheel and its dependency packages. Let pip finish downloading; PyTorch runs in pure CPU mode on Raspberry Pi).*
+
+2. **Lightweight Profile (CSRT & Servos only — no PyTorch, ~50 MB)**:
    ```bash
    ./run.sh --pi
    # or manually:
    pip install -r requirements-pi.txt
    python main.py --mode csrt --cv-only
-   ```
-
-2. **Full YOLO Auto-Detection (CPU-only PyTorch — skips 1GB+ NVIDIA CUDA packages)**:
-   ```bash
-   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-   pip install -r requirements.txt
-   ./run.sh
    ```
 

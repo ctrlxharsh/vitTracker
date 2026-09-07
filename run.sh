@@ -25,31 +25,36 @@ if [ ! -d ".venv" ]; then
     $PYTHON_CMD -m venv .venv
     source .venv/bin/activate
     echo "==> Installing dependencies..."
-    pip install --upgrade pip --quiet
-
-    # If on Linux aarch64 (Raspberry Pi) and installing full requirements, use CPU PyTorch to avoid NVIDIA CUDA bloat
-    if [ "$REQ_FILE" == "requirements.txt" ] && [ "$(uname -s)" = "Linux" ] && [ "$(uname -m)" = "aarch64" ] && ! command -v nvidia-smi &>/dev/null; then
-        echo "==> Raspberry Pi (aarch64) detected: installing CPU-only PyTorch (skipping NVIDIA CUDA)..."
-        pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu --quiet || true
-    fi
-
-    pip install -r "$REQ_FILE" --quiet
+    pip install --upgrade pip
+    pip install -r "$REQ_FILE"
     touch .venv/.installed
 fi
 
 # Activate virtual environment
 source .venv/bin/activate
 
+# Auto-install missing dependencies if environment is incomplete
+if [ "$REQ_FILE" == "requirements.txt" ]; then
+    if ! python -c "import ultralytics" &>/dev/null; then
+        echo "==> Ultralytics not detected in virtual environment. Installing dependencies from $REQ_FILE..."
+        pip install -r "$REQ_FILE"
+        touch .venv/.installed
+    fi
+elif [ "$REQ_FILE" == "requirements-pi.txt" ]; then
+    if ! python -c "import cv2" &>/dev/null; then
+        echo "==> Missing dependencies detected. Installing from $REQ_FILE..."
+        pip install -r "$REQ_FILE"
+        touch .venv/.installed
+    fi
+fi
+
 # Optional explicit dependency check with --install flag
 if [ "$1" == "--install" ]; then
     echo "==> Verifying dependencies..."
-    if [ "$REQ_FILE" == "requirements.txt" ] && [ "$(uname -s)" = "Linux" ] && [ "$(uname -m)" = "aarch64" ] && ! command -v nvidia-smi &>/dev/null; then
-        pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu --quiet || true
-    fi
-    pip install -r "$REQ_FILE" --quiet
+    pip install -r "$REQ_FILE"
     touch .venv/.installed
     shift
 fi
 
-# Launch CSRT Tracker with Pan-Tilt Servoing directly
+# Launch AI Vision Tracker with Pan-Tilt Servoing directly
 exec python main.py "$@"
