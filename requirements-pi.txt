@@ -1,0 +1,10 @@
+# Lightweight Raspberry Pi dependencies (CSRT Tracker & Pan-Tilt Visual Servoing)
+# Excludes PyTorch / Ultralytics / CUDA (~50 MB vs 2+ GB footprint)
+
+opencv-contrib-python>=4.10.0
+customtkinter>=6.0.0
+pillow>=9.0.0
+tkinter-icons[lucide]>=1.1.0
+numpy>=1.23.0
+huggingface_hub>=0.20.0
+pigpio>=1.78; sys_platform == "linux"

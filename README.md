@@ -61,9 +61,25 @@ python main.py --cv-only
 python main.py --weights best.pt --source path/to/video.mp4
 ```
 
----
-
-## Hardware Servoing (Raspberry Pi)
+## Hardware Servoing & Raspberry Pi Setup
 - **Pan (Azimuth)**: GPIO 12 (PWM0)
 - **Tilt (Elevation)**: GPIO 13 (PWM1)
 - Automatic mock/simulation fallback on macOS/Windows/Linux without pigpiod.
+
+### Raspberry Pi Installation Options
+
+1. **Lightweight (CSRT & Servos only — no PyTorch/CUDA bloat, ~50 MB)**:
+   ```bash
+   ./run.sh --pi
+   # or manually:
+   pip install -r requirements-pi.txt
+   python main.py --mode csrt --cv-only
+   ```
+
+2. **Full YOLO Auto-Detection (CPU-only PyTorch — skips 1GB+ NVIDIA CUDA packages)**:
+   ```bash
+   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+   pip install -r requirements.txt
+   ./run.sh
+   ```
+
