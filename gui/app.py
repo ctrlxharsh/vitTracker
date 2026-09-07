@@ -41,6 +41,7 @@ class CSRTTrackerApp:
 
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
+        self.root.config(cursor="arrow")
 
         # Subsystems
         self.mode = default_mode  # "YOLO Auto" or "CSRT Manual"
@@ -609,7 +610,7 @@ class CSRTTrackerApp:
             self.main_frame,
             bg="#0d0e12",
             highlightthickness=0,
-            cursor="crosshair",
+            cursor="arrow",
         )
         self.video_canvas.grid(row=0, column=0, sticky="nsew")
 

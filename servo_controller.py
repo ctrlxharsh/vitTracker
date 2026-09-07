@@ -13,6 +13,7 @@ Features:
 - Safe travel clamping (prevents servo stall/binding) and soft center watchdog.
 """
 
+import threading
 import time
 from typing import List, Optional, Tuple
 
@@ -159,7 +160,9 @@ class Servo:
 
 class ESP32SerialBridge:
     """
-    High-speed serial communication bridge between host and NodeMCU ESP32.
+    High-speed, non-blocking serial communication bridge between host and ESP32.
+    Decouples serial I/O into a dedicated background worker thread so GUI execution
+    and object tracking never stutter or block.
     """
 
     def __init__(self, port: Optional[str] = None, baudrate: int = 115200):
@@ -167,8 +170,15 @@ class ESP32SerialBridge:
         self.baudrate = baudrate
         self.ser: Optional[serial.Serial] = None
         self.is_connected = False
-        self.last_send_time = 0.0
         self.min_interval = 0.015  # Limit transmit rate to ~66 Hz to match servo frequency
+
+        # Thread-safe target PWM storage
+        self._target_lock = threading.Lock()
+        self._target_pan: Optional[int] = None
+        self._target_tilt: Optional[int] = None
+        self._has_new_target = threading.Event()
+        self._worker_running = False
+        self._worker_thread: Optional[threading.Thread] = None
 
         if port:
             self.connect(port)
@@ -187,13 +197,14 @@ class ESP32SerialBridge:
             )
             try:
                 self.ser.dtr = True
-                self.ser.rts = True
+                self.ser.rts = False  # Keep RTS low to prevent unintended hardware reset
             except Exception:
                 pass
             time.sleep(0.15)  # Allow USB CDC connection to settle
             self.port = port
             self.is_connected = True
             print(f"[ESP32] Successfully connected on serial port: {port} ({self.baudrate} baud)")
+            self._start_worker()
             return True
         except Exception as e:
             self.ser = None
@@ -201,24 +212,64 @@ class ESP32SerialBridge:
             print(f"[ESP32] Could not open serial port {port}: {e}")
             return False
 
+    def _start_worker(self):
+        if self._worker_thread is not None and self._worker_thread.is_alive():
+            return
+        self._worker_running = True
+        self._worker_thread = threading.Thread(
+            target=self._io_loop,
+            daemon=True,
+            name="ESP32-Serial-IO",
+        )
+        self._worker_thread.start()
+
+    def _io_loop(self):
+        while self._worker_running:
+            self._has_new_target.wait(timeout=0.02)
+            if not self._worker_running:
+                break
+
+            target = None
+            with self._target_lock:
+                if self._target_pan is not None and self._target_tilt is not None:
+                    target = (self._target_pan, self._target_tilt)
+                    self._target_pan = None
+                    self._target_tilt = None
+                self._has_new_target.clear()
+
+            t_start = time.monotonic()
+            if target is not None and self.ser is not None and self.is_connected:
+                pan_us, tilt_us = target
+                packet = f"P:{pan_us} T:{tilt_us}\n".encode("ascii")
+                try:
+                    self.ser.write(packet)
+                except Exception as e:
+                    print(f"[ESP32] Serial write error on {self.port}: {e}")
+                    self.is_connected = False
+
+            # Drain incoming serial buffer (e.g. feedback, ACKs, logs from ESP32)
+            if self.ser is not None and self.is_connected:
+                try:
+                    if self.ser.in_waiting > 0:
+                        _ = self.ser.read(self.ser.in_waiting)
+                except Exception:
+                    pass
+
+            # Throttle output rate to max ~66 Hz
+            elapsed = time.monotonic() - t_start
+            if elapsed < self.min_interval:
+                time.sleep(self.min_interval - elapsed)
+
     def send_pwm(self, pan_us: int, tilt_us: int) -> bool:
-        """Sends 'P:<pan_us> T:<tilt_us>\\n' packet to ESP32."""
-        if not self.is_connected or self.ser is None:
+        """Non-blocking: Enqueues PWM target for background worker thread."""
+        if not self.is_connected:
             return False
 
-        t_now = time.monotonic()
-        if (t_now - self.last_send_time) < self.min_interval:
-            return True
-        self.last_send_time = t_now
-
-        packet = f"P:{pan_us} T:{tilt_us}\n".encode("ascii")
-        try:
-            self.ser.write(packet)
-            return True
-        except Exception as e:
-            print(f"[ESP32] Serial write error on {self.port}: {e}")
-            self.is_connected = False
-            return False
+        with self._target_lock:
+            self._target_pan = pan_us
+            self._target_tilt = tilt_us
+        self._has_new_target.set()
+        return True
 
     def send_command(self, cmd: str) -> bool:
         """Sends raw command string to ESP32."""
@@ -231,6 +282,12 @@ class ESP32SerialBridge:
             return False
 
     def close(self):
+        self._worker_running = False
+        self._has_new_target.set()
+        if self._worker_thread is not None and self._worker_thread.is_alive():
+            self._worker_thread.join(timeout=0.2)
+        self._worker_thread = None
+
         if self.ser is not None:
             try:
                 self.ser.close()
