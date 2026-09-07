@@ -1,7 +1,13 @@
-opencv-contrib-python>=4.8.0,<4.12.0
+opencv-contrib-python==4.11.0.86
+
 customtkinter>=6.0.0
+
 pillow>=9.0.0
+
 tkinter-icons[lucide]>=1.1.0
-numpy>=1.22.0,<2.0.0
+
+numpy>=2.0.0,<2.3.0
+
 huggingface_hub>=0.20.0
+
 pigpio>=1.78; sys_platform == "linux"
