@@ -70,6 +70,30 @@ class PiCameraCapture:
         return True
 
 
+class OpenCVCapture:
+    """Wrapper around cv2.VideoCapture providing custom attributes."""
+
+    def __init__(self, cap, source_desc: str = "Webcam"):
+        self.cap = cap
+        self.is_picamera = False
+        self.source_desc = source_desc
+
+    def isOpened(self) -> bool:
+        return self.cap.isOpened()
+
+    def read(self):
+        return self.cap.read()
+
+    def release(self):
+        return self.cap.release()
+
+    def get(self, prop: int) -> float:
+        return self.cap.get(prop)
+
+    def set(self, prop: int, val: float) -> bool:
+        return self.cap.set(prop, val)
+
+
 def open_video_capture(source=0, width: int = 640, height: int = 480):
     """
     Opens video stream from Raspberry Pi CSI camera, USB webcam, or video file.
@@ -104,7 +128,6 @@ def open_video_capture(source=0, width: int = 640, height: int = 480):
     # Fall back to standard cv2.VideoCapture
     actual_source = cam_index if is_cam_index else source
     cap = cv2.VideoCapture(actual_source)
-    cap.is_picamera = False
 
     if is_cam_index:
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
@@ -134,10 +157,8 @@ def open_video_capture(source=0, width: int = 640, height: int = 480):
                 pass
             # Reopen standard capture if picamera2 also failed
             cap = cv2.VideoCapture(actual_source)
-            cap.is_picamera = False
 
-        cap.source_desc = f"Webcam ({cam_index})"
+        return OpenCVCapture(cap, source_desc=f"Webcam ({cam_index})")
     else:
-        cap.source_desc = os.path.basename(str(source))
+        return OpenCVCapture(cap, source_desc=os.path.basename(str(source)))
 
-    return cap

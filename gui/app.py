@@ -7,7 +7,7 @@ and YOLO Autonomous Object Detection/Tracking with Pan-Tilt visual servoing.
 
 from collections import deque
 import os
-import sys
+import threading
 import time
 import tkinter as tk
 from tkinter import filedialog
@@ -20,7 +20,7 @@ from PIL import Image, ImageTk
 from camera import open_video_capture
 from gui.icons import get_icon
 from servo_controller import PanTiltServoing
-from tracker import CSRTTrackerEngine, compute_spatial_reliability_map
+from tracker import CSRTTrackerEngine, TrackingResult, compute_spatial_reliability_map
 from yolo_tracker import YOLOTrackerEngine
 
 
@@ -92,8 +92,40 @@ class CSRTTrackerApp:
         # Open Video Stream
         self._open_source(video_source)
 
+        # Threaded Tracking Subsystem for High-FPS Servo Servoing
+        self._track_lock = threading.Lock()
+        self._worker_frame = None
+        self._worker_result = TrackingResult(success=False, bbox=None, confidence=0.0, center=None)
+        self._worker_busy = False
+        self._tracker_thread = threading.Thread(target=self._tracker_worker, daemon=True)
+        self._tracker_thread.start()
+
         # Start Processing Loop
         self.root.after(10, self._process_frame)
+
+    def _tracker_worker(self):
+        while self.is_running:
+            frame_to_process = None
+            with self._track_lock:
+                if self._worker_frame is not None and not self.is_paused:
+                    frame_to_process = self._worker_frame
+                    self._worker_frame = None
+                    self._worker_busy = True
+
+            if frame_to_process is not None:
+                try:
+                    if self.mode == "YOLO Auto" and self.yolo_tracker is not None:
+                        res = self.yolo_tracker.update(frame_to_process)
+                    else:
+                        res = self.csrt_tracker.update(frame_to_process)
+                except Exception:
+                    res = TrackingResult(success=False, bbox=None, confidence=0.0, center=None)
+
+                with self._track_lock:
+                    self._worker_result = res
+                    self._worker_busy = False
+            else:
+                time.sleep(0.005)
 
     def _load_icons(self):
         self.icon_target = get_icon("target", (16, 16), "#ffffff")
@@ -566,10 +598,13 @@ class CSRTTrackerApp:
         self.status_pill.configure(text=text, fg_color=bg_color, text_color=text_color)
 
     def _reset_tracker(self):
-        if self.mode == "YOLO Auto" and self.yolo_tracker is not None:
-            self.yolo_tracker.reset()
-        else:
-            self.csrt_tracker.reset()
+        with self._track_lock:
+            self._worker_frame = None
+            self._worker_result = TrackingResult(success=False, bbox=None, confidence=0.0, center=None)
+            if self.mode == "YOLO Auto" and self.yolo_tracker is not None:
+                self.yolo_tracker.reset()
+            else:
+                self.csrt_tracker.reset()
 
         self.score_bar.set(0.0)
         self.score_val_lbl.configure(text="0%", text_color="#9aa0b4")
@@ -656,11 +691,19 @@ class CSRTTrackerApp:
 
         if rw >= 12 and rh >= 12:
             bbox = (int(rx), int(ry), int(rw), int(rh))
-            success = self.csrt_tracker.init(self.last_clean_frame, bbox)
-            if success:
-                self._set_status("CSRT TRACKING ACTIVE", "#065f46", "#6ee7b7")
-            else:
-                self._set_status("INIT FAILED - TRY AGAIN", "#7f1d1d", "#fca5a5")
+            with self._track_lock:
+                success = self.csrt_tracker.init(self.last_clean_frame, bbox)
+                if success:
+                    self._worker_result = TrackingResult(
+                        success=True,
+                        bbox=bbox,
+                        confidence=1.0,
+                        center=(rx + rw / 2.0, ry + rh / 2.0),
+                        status="CSRT TRACKING ACTIVE",
+                    )
+                    self._set_status("CSRT TRACKING ACTIVE", "#065f46", "#6ee7b7")
+                else:
+                    self._set_status("INIT FAILED - TRY AGAIN", "#7f1d1d", "#fca5a5")
         else:
             self._set_status("BOX TOO SMALL - TRY AGAIN", "#7f1d1d", "#fca5a5")
 
@@ -694,15 +737,17 @@ class CSRTTrackerApp:
                 self.last_clean_frame = frame.copy()
                 fh, fw = frame.shape[:2]
 
-                # Run active tracker engine
-                if self.mode == "YOLO Auto" and self.yolo_tracker is not None:
-                    result = self.yolo_tracker.update(frame)
-                    trajectory = self.yolo_tracker.trajectory
-                else:
-                    result = self.csrt_tracker.update(frame)
-                    trajectory = self.csrt_tracker.trajectory
+                # Dispatch frame to tracker worker if available
+                with self._track_lock:
+                    if not self._worker_busy:
+                        self._worker_frame = frame.copy()
+                    result = self._worker_result
+                    if self.mode == "YOLO Auto" and self.yolo_tracker is not None:
+                        trajectory = self.yolo_tracker.trajectory
+                    else:
+                        trajectory = self.csrt_tracker.trajectory
 
-                # Feed Detection to Pan-Tilt Servoing Subsystem
+                # Feed Detection to Pan-Tilt Servoing Subsystem at full video rate (30-60 FPS)
                 pan_ang, tilt_ang = self.servo.update(
                     center=result.center if result.success else None,
                     frame_w=fw,

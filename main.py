@@ -13,12 +13,13 @@ Launchable as modern CustomTkinter GUI or standalone OpenCV CLI window.
 
 import argparse
 import sys
+import threading
 import time
 import cv2
 
 from camera import open_video_capture
 from servo_controller import PanTiltServoing
-from tracker import CSRTTrackerEngine, compute_spatial_reliability_map
+from tracker import CSRTTrackerEngine, TrackingResult, compute_spatial_reliability_map
 from yolo_tracker import YOLOTrackerEngine, get_yolo_weights
 
 
@@ -65,6 +66,38 @@ def run_opencv_cli(
 
     prev_t = time.monotonic()
 
+    worker_frame = None
+    worker_result = TrackingResult(success=False, bbox=None, confidence=0.0, center=None)
+    worker_busy = False
+    track_lock = threading.Lock()
+    cli_running = True
+
+    def tracker_worker():
+        nonlocal worker_frame, worker_result, worker_busy
+        while cli_running:
+            f_proc = None
+            with track_lock:
+                if worker_frame is not None:
+                    f_proc = worker_frame
+                    worker_frame = None
+                    worker_busy = True
+            if f_proc is not None:
+                try:
+                    if mode == "yolo" and yolo_tracker is not None:
+                        res = yolo_tracker.update(f_proc)
+                    else:
+                        res = csrt_tracker.update(f_proc)
+                except Exception:
+                    res = TrackingResult(success=False, bbox=None, confidence=0.0, center=None)
+                with track_lock:
+                    worker_result = res
+                    worker_busy = False
+            else:
+                time.sleep(0.005)
+
+    th = threading.Thread(target=tracker_worker, daemon=True)
+    th.start()
+
     try:
         while True:
             ret, frame = cap.read()
@@ -79,13 +112,13 @@ def run_opencv_cli(
             dt = max(1e-3, t_now - prev_t)
             prev_t = t_now
 
-            # Run active tracker
-            if mode == "yolo" and yolo_tracker is not None:
-                result = yolo_tracker.update(frame)
-            else:
-                result = csrt_tracker.update(frame)
+            # Dispatch frame to worker & get latest tracking result
+            with track_lock:
+                if not worker_busy:
+                    worker_frame = frame.copy()
+                result = worker_result
 
-            # Update servos
+            # Update servos at full frame rate
             pan_ang, tilt_ang = servo.update(
                 center=result.center if result.success else None,
                 frame_w=fw,
@@ -155,13 +188,19 @@ def run_opencv_cli(
             if key in (27, ord("q")):
                 break
             elif key == ord("t"):
-                mode = "csrt" if mode == "yolo" else "yolo"
+                with track_lock:
+                    mode = "csrt" if mode == "yolo" else "yolo"
+                    worker_frame = None
+                    worker_result = TrackingResult(success=False, bbox=None, confidence=0.0, center=None)
                 print(f"Switched mode to: [{mode.upper()}]")
             elif key == ord("c"):
-                if mode == "yolo" and yolo_tracker:
-                    yolo_tracker.reset()
-                else:
-                    csrt_tracker.reset()
+                with track_lock:
+                    worker_frame = None
+                    worker_result = TrackingResult(success=False, bbox=None, confidence=0.0, center=None)
+                    if mode == "yolo" and yolo_tracker:
+                        yolo_tracker.reset()
+                    else:
+                        csrt_tracker.reset()
                 servo.center_servos()
             elif key == ord("s"):
                 servo.enabled = not servo.enabled
@@ -171,9 +210,17 @@ def run_opencv_cli(
                 if mode == "csrt":
                     roi = cv2.selectROI(win_name, frame, fromCenter=False, showCrosshair=True)
                     if roi[2] > 10 and roi[3] > 10:
-                        csrt_tracker.init(frame, roi)
+                        with track_lock:
+                            csrt_tracker.init(frame, roi)
+                            worker_result = TrackingResult(
+                                success=True,
+                                bbox=roi,
+                                confidence=1.0,
+                                center=(roi[0] + roi[2] / 2.0, roi[1] + roi[3] / 2.0),
+                            )
 
     finally:
+        cli_running = False
         cap.release()
         servo.release()
         cv2.destroyAllWindows()

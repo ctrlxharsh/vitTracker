@@ -60,12 +60,19 @@ class YOLOTrackerEngine:
     Detects blue mock drone targets and assigns persistent track IDs.
     """
 
-    def __init__(self, weights_path: Optional[str] = None, conf: float = 0.80, max_trajectory: int = 40):
+    def __init__(
+        self,
+        weights_path: Optional[str] = None,
+        conf: float = 0.80,
+        max_trajectory: int = 40,
+        imgsz: int = 320,
+    ):
         self.conf = conf
         self.weights_path = weights_path or get_yolo_weights()
         self.trajectory = deque(maxlen=max_trajectory)
         self.active_track_id: Optional[int] = None
         self.last_bbox: Optional[Tuple[int, int, int, int]] = None
+        self.imgsz = imgsz
 
         print(f"Loading YOLO model from: {self.weights_path}...")
         from ultralytics import YOLO
@@ -89,10 +96,14 @@ class YOLOTrackerEngine:
 
         try:
             # Use model.track with persistence for continuous ID assignment
-            results = self.model.track(frame, persist=True, conf=self.conf, verbose=False)
+            results = self.model.track(
+                frame, persist=True, conf=self.conf, imgsz=self.imgsz, verbose=False
+            )
         except Exception:
             # Fallback to predict if tracker algorithm is initializing
-            results = self.model.predict(frame, conf=self.conf, verbose=False)
+            results = self.model.predict(
+                frame, conf=self.conf, imgsz=self.imgsz, verbose=False
+            )
 
         if not results or len(results) == 0:
             return TrackingResult(

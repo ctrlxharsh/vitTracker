@@ -33,11 +33,11 @@ class AxisController:
 
     def __init__(
         self,
-        kp: float = 0.45,
-        kd: float = 0.06,
-        deadband_px: float = 8.0,
-        max_step_deg: float = 2.0,
-        ema: float = 0.4,
+        kp: float = 0.70,
+        kd: float = 0.08,
+        deadband_px: float = 10.0,
+        max_step_deg: float = 10.0,
+        ema: float = 0.75,
     ):
         self.kp = kp
         self.kd = kd
@@ -54,7 +54,9 @@ class AxisController:
     def step(self, err_px: float, deg_per_px: float, dt: float) -> float:
         """Returns the angle increment in degrees for this tick."""
         if abs(err_px) < self.deadband_px:
-            err_px = 0.0
+            self.filt_err = 0.0
+            self.prev_err = 0.0
+            return 0.0
 
         self.filt_err += self.ema * (err_px - self.filt_err)
         err_deg = self.filt_err * deg_per_px
@@ -166,8 +168,8 @@ class PanTiltServoing:
         self.pan_servo = Servo(self.pi, pan_gpio, lo_deg=pan_min, hi_deg=pan_max, start_deg=0.0)
         self.tilt_servo = Servo(self.pi, tilt_gpio, lo_deg=tilt_min, hi_deg=tilt_max, start_deg=0.0)
 
-        self.pan_ctl = AxisController(kp=0.45, kd=0.06, deadband_px=8.0, max_step_deg=2.0)
-        self.tilt_ctl = AxisController(kp=0.45, kd=0.06, deadband_px=8.0, max_step_deg=1.5)
+        self.pan_ctl = AxisController(kp=0.70, kd=0.08, deadband_px=10.0, max_step_deg=10.0, ema=0.75)
+        self.tilt_ctl = AxisController(kp=0.70, kd=0.08, deadband_px=10.0, max_step_deg=8.0, ema=0.75)
 
         self.pan_cmd = 0.0
         self.tilt_cmd = 0.0
