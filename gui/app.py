@@ -143,7 +143,12 @@ class CSRTTrackerApp:
         self.root.grid_rowconfigure(0, weight=1)
 
         # ----------------- SIDEBAR -----------------
-        self.sidebar = ctk.CTkFrame(self.root, corner_radius=0, fg_color="#18191c")
+        self.sidebar = ctk.CTkScrollableFrame(
+            self.root,
+            corner_radius=0,
+            fg_color="#18191c",
+            width=340,
+        )
         self.sidebar.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
 
         # Brand Header
@@ -489,6 +494,44 @@ class CSRTTrackerApp:
         # Visual Toggles
         toggles_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
         toggles_frame.pack(fill="x", padx=16, pady=(4, 2))
+        toggles_frame.grid_columnconfigure(0, weight=1)
+        toggles_frame.grid_columnconfigure(1, weight=1)
+
+        sw_traj = ctk.CTkSwitch(
+            toggles_frame,
+            text="Trajectory",
+            variable=self.var_trajectory,
+            progress_color="#2563eb",
+            font=ctk.CTkFont(size=11),
+        )
+        sw_traj.grid(row=0, column=0, sticky="w", pady=2)
+
+        sw_bore = ctk.CTkSwitch(
+            toggles_frame,
+            text="Boresight",
+            variable=self.var_boresight,
+            progress_color="#38bdf8",
+            font=ctk.CTkFont(size=11),
+        )
+        sw_bore.grid(row=0, column=1, sticky="w", pady=2)
+
+        self.sw_pip = ctk.CTkSwitch(
+            toggles_frame,
+            text="PiP Map",
+            variable=self.var_pip_map,
+            progress_color="#00d285",
+            font=ctk.CTkFont(size=11),
+        )
+        self.sw_pip.grid(row=1, column=0, sticky="w", pady=2)
+
+        sw_mirr = ctk.CTkSwitch(
+            toggles_frame,
+            text="Mirror",
+            variable=self.var_mirror,
+            progress_color="#0284c7",
+            font=ctk.CTkFont(size=11),
+        )
+        sw_mirr.grid(row=1, column=1, sticky="w", pady=2)
 
         self.sw_spatial = ctk.CTkSwitch(
             toggles_frame,
@@ -497,43 +540,7 @@ class CSRTTrackerApp:
             progress_color="#00d285",
             font=ctk.CTkFont(size=11),
         )
-        self.sw_spatial.pack(anchor="w", pady=1)
-
-        self.sw_pip = ctk.CTkSwitch(
-            toggles_frame,
-            text="PiP Heatmap",
-            variable=self.var_pip_map,
-            progress_color="#00d285",
-            font=ctk.CTkFont(size=11),
-        )
-        self.sw_pip.pack(anchor="w", pady=1)
-
-        sw3 = ctk.CTkSwitch(
-            toggles_frame,
-            text="Trajectory Trail",
-            variable=self.var_trajectory,
-            progress_color="#2563eb",
-            font=ctk.CTkFont(size=11),
-        )
-        sw3.pack(anchor="w", pady=1)
-
-        sw4 = ctk.CTkSwitch(
-            toggles_frame,
-            text="Optical Boresight",
-            variable=self.var_boresight,
-            progress_color="#38bdf8",
-            font=ctk.CTkFont(size=11),
-        )
-        sw4.pack(anchor="w", pady=1)
-
-        sw_mirror = ctk.CTkSwitch(
-            toggles_frame,
-            text="Mirror View",
-            variable=self.var_mirror,
-            progress_color="#0284c7",
-            font=ctk.CTkFont(size=11),
-        )
-        sw_mirror.pack(anchor="w", pady=1)
+        self.sw_spatial.grid(row=2, column=0, columnspan=2, sticky="w", pady=2)
 
         # Source Switchers
         src_label = ctk.CTkLabel(
@@ -587,7 +594,7 @@ class CSRTTrackerApp:
             wraplength=270,
             justify="center",
         )
-        shortcuts_box.pack(side="bottom", pady=6)
+        shortcuts_box.pack(fill="x", padx=16, pady=(10, 16))
 
         # Update initial UI state based on mode
         self._update_mode_ui()
