@@ -22,8 +22,10 @@ class PiCameraCapture:
         self.width = width
         self.height = height
         self.picam2 = Picamera2()
+        # In Picamera2/libcamera, 'RGB888' format outputs a [B, G, R] NumPy array,
+        # perfectly matching OpenCV's native BGR representation.
         config = self.picam2.create_video_configuration(
-            main={"size": (width, height), "format": "BGR888"}
+            main={"size": (width, height), "format": "RGB888"}
         )
         self.picam2.configure(config)
         self.picam2.start()
@@ -40,6 +42,8 @@ class PiCameraCapture:
             frame = self.picam2.capture_array()
             if frame is None:
                 return False, None
+            if frame.ndim == 3 and frame.shape[2] == 4:
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
             return True, frame
         except Exception:
             return False, None
