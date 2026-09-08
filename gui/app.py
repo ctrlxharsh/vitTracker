@@ -1190,7 +1190,8 @@ class CSRTTrackerApp:
             display_frame = frame.copy()
             cv2.rectangle(display_frame, (rx, ry), (rx + rw, ry + rh), (0, 210, 255), 2)
 
-        resized = cv2.resize(display_frame, (dw, dh), interpolation=cv2.INTER_LINEAR)
+        interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
+        resized = cv2.resize(display_frame, (dw, dh), interpolation=interp)
         rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
         img_pil = Image.fromarray(rgb)
         self.tk_image = ImageTk.PhotoImage(image=img_pil)

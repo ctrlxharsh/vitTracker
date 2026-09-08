@@ -263,6 +263,9 @@ def open_video_capture(source="auto", width: int = 1280, height: int = 720):
     cap = _create_cv_capture(actual_source, is_camera=is_cam_index)
 
     if is_cam_index:
+        if platform.system() == "Windows":
+            # Enable hardware MJPEG stream to unlock native 720p/1080p HD at 30 FPS over USB
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
