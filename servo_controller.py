@@ -228,7 +228,8 @@ class ESP32SerialBridge:
         self.is_connected = False
         self.min_interval = 0.015  # Limit transmit rate to ~66 Hz to match servo frequency
 
-        # Thread-safe target PWM storage
+        # Thread synchronization
+        self._io_lock = threading.Lock()
         self._target_lock = threading.Lock()
         self._target_pan: Optional[int] = None
         self._target_tilt: Optional[int] = None
@@ -245,17 +246,19 @@ class ESP32SerialBridge:
 
         self.close()
         try:
-            self.ser = serial.Serial(
-                port=port,
-                baudrate=self.baudrate,
-                timeout=0.1,
-            )
-            try:
-                self.ser.dtr = False
-                self.ser.rts = False
-            except Exception:
-                pass
-            time.sleep(0.15)  # Allow USB CDC connection to settle
+            with self._io_lock:
+                self.ser = serial.Serial(
+                    port=port,
+                    baudrate=self.baudrate,
+                    timeout=0.2,
+                    write_timeout=0.5,
+                )
+                try:
+                    self.ser.reset_input_buffer()
+                    self.ser.reset_output_buffer()
+                except Exception:
+                    pass
+            time.sleep(0.2)  # Allow connection to settle
             self.port = port
             self.is_connected = True
             print(f"[ESP32] Successfully connected on serial port: {port} ({self.baudrate} baud)")
@@ -293,47 +296,31 @@ class ESP32SerialBridge:
                 self._has_new_target.clear()
 
             t_start = time.monotonic()
-            if target is not None and self.ser is not None and self.is_connected:
+            if target is not None and self.is_connected:
                 pan_us, tilt_us = target
                 packet = f"P:{pan_us} T:{tilt_us}\n".encode("ascii")
-                try:
-                    self.ser.write(packet)
-                except Exception as e:
-                    print(f"[ESP32] Serial write error on {self.port}: {e}")
-                    self.is_connected = False
-                    try:
-                        self.ser.close()
-                    except Exception:
-                        pass
-                    self.ser = None
-
-            # Automatic reconnection attempt if port dropped
-            if not self.is_connected and self.port and self._worker_running:
-                time.sleep(1.0)
-                try:
-                    new_ser = serial.Serial(
-                        port=self.port,
-                        baudrate=self.baudrate,
-                        timeout=0.1,
-                    )
-                    try:
-                        new_ser.dtr = True
-                        new_ser.rts = True
-                    except Exception:
-                        pass
-                    self.ser = new_ser
-                    self.is_connected = True
-                    print(f"[ESP32] Auto-reconnected successfully on {self.port}")
-                except Exception:
-                    pass
+                with self._io_lock:
+                    if self.ser is not None and self.is_connected:
+                        try:
+                            self.ser.write(packet)
+                        except Exception as e:
+                            print(f"[ESP32] Serial write error on {self.port}: {e}")
+                            self.is_connected = False
+                            try:
+                                self.ser.close()
+                            except Exception:
+                                pass
+                            self.ser = None
 
             # Drain incoming serial buffer (e.g. feedback, ACKs, logs from ESP32)
-            if self.ser is not None and self.is_connected:
-                try:
-                    if self.ser.in_waiting > 0:
-                        _ = self.ser.read(self.ser.in_waiting)
-                except Exception:
-                    pass
+            if self.is_connected:
+                with self._io_lock:
+                    if self.ser is not None and self.is_connected:
+                        try:
+                            if self.ser.in_waiting > 0:
+                                _ = self.ser.read(self.ser.in_waiting)
+                        except Exception:
+                            pass
 
             # Throttle output rate to max ~66 Hz
             elapsed = time.monotonic() - t_start
@@ -350,31 +337,36 @@ class ESP32SerialBridge:
 
     def send_command(self, cmd: str) -> bool:
         """Sends raw command string to ESP32."""
-        if not self.is_connected or self.ser is None:
+        if not self.is_connected:
             return False
-        try:
-            self.ser.write(f"{cmd.strip()}\n".encode("ascii"))
-            return True
-        except Exception:
-            return False
+        with self._io_lock:
+            if not self.is_connected or self.ser is None:
+                return False
+            try:
+                self.ser.write(f"{cmd.strip()}\n".encode("ascii"))
+                return True
+            except Exception:
+                return False
 
     def close(self):
         self._worker_running = False
         self._has_new_target.set()
         if self._worker_thread is not None and self._worker_thread.is_alive():
-            self._worker_thread.join(timeout=0.2)
+            self._worker_thread.join(timeout=0.3)
         self._worker_thread = None
 
-        if self.ser is not None:
-            try:
-                # Park servos at center to maintain position and prevent sagging/jerk on restart
-                self.ser.write(b"CENTER\n")
-                self.ser.flush()
-                time.sleep(0.04)
-                self.ser.close()
-            except Exception:
-                pass
-            self.ser = None
+        with self._io_lock:
+            if self.ser is not None:
+                try:
+                    self.ser.write(b"CENTER\n")
+                    self.ser.flush()
+                except Exception:
+                    pass
+                try:
+                    self.ser.close()
+                except Exception:
+                    pass
+                self.ser = None
         self.is_connected = False
 
 

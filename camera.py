@@ -27,9 +27,7 @@ def _create_cv_capture(source, is_camera: bool = False):
     """Creates a cv2.VideoCapture instance preferring DirectShow on Windows."""
     if is_camera and platform.system() == "Windows":
         # DirectShow resolves MSMF async ReadSample/grabFrame error -1072873821 on Windows
-        cap = cv2.VideoCapture(source, cv2.CAP_DSHOW)
-        if cap.isOpened():
-            return cap
+        return cv2.VideoCapture(source, cv2.CAP_DSHOW)
     return cv2.VideoCapture(source)
 
 
@@ -189,6 +187,8 @@ def get_available_cameras(refresh: bool = False):
                 else:
                     label = f"Camera {idx} ({w}x{h})"
                 cameras.append((idx, label))
+        elif platform.system() == "Windows" and idx >= 2:
+            break
 
     if not cameras:
         cameras.append((0, "Camera 0 [Default]"))
