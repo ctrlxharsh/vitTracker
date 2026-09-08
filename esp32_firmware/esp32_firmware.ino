@@ -65,21 +65,24 @@ unsigned long lastPacketTime = 0;
 const unsigned long WATCHDOG_TIMEOUT_MS = 2000;
 
 // ---------------------------------------------------------------------------
-// Helper: Send Serial Response to Active Port
+// Helper: Send Serial Response to Both Active Ports (USB-CDC and UART0)
 // ---------------------------------------------------------------------------
 void sendFeedback(const char* msg) {
     Serial.println(msg);
+    Serial0.println(msg);
 }
 
 // ---------------------------------------------------------------------------
 // Setup
 // ---------------------------------------------------------------------------
 void setup() {
+    // Initialize both USB-CDC (native USB) and Hardware UART0 (CP2102)
     Serial.begin(115200);
+    Serial0.begin(115200);
 
     // Brief wait for USB Serial host connection
     unsigned long startWait = millis();
-    while (!Serial && (millis() - startWait < 1500)) {
+    while (!Serial && !Serial0 && (millis() - startWait < 1500)) {
         delay(10);
     }
 
@@ -185,9 +188,13 @@ void handleSerialChar(char c) {
 }
 
 void loop() {
-    // Read from standard Serial
+    // Read from standard USB-CDC Serial
     while (Serial.available() > 0) {
         handleSerialChar((char)Serial.read());
+    }
+    // Read from Hardware UART0 (CP2102)
+    while (Serial0.available() > 0) {
+        handleSerialChar((char)Serial0.read());
     }
 
     // Smooth hardware slew rate limiter: gently ramp pulse width to target

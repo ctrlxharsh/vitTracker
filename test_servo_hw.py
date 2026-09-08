@@ -14,7 +14,12 @@ import serial.tools.list_ports
 def find_port():
     for p in serial.tools.list_ports.comports():
         dev = p.device.lower()
-        if "usbmodem" in dev or "usbserial" in dev or "ch340" in dev or "cp210" in dev:
+        desc = (p.description or "").lower()
+        hwid = (p.hwid or "").lower()
+        if any(k in dev or k in desc or k in hwid for k in ["usbmodem", "usbserial", "ch340", "cp210", "espressif", "303a:", "10c4:", "usb serial"]):
+            return p.device
+    for p in serial.tools.list_ports.comports():
+        if p.device.upper().startswith("COM") and p.device.upper() != "COM1":
             return p.device
     return None
 

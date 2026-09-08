@@ -68,35 +68,51 @@ def find_esp32_port(preferred: Optional[str] = None) -> Optional[str]:
     if not available_ports:
         return None
 
-    # If preferred port specified and present, use it
-    if preferred:
+    # 1. If preferred port specified and present, use it (case-insensitive)
+    if preferred and preferred.lower() != "auto":
         for p in available_ports:
-            if p.device == preferred:
+            if p.device.lower() == preferred.lower():
                 return p.device
 
-    # Look for known USB-serial adapters typically used by ESP32 boards
-    # (CP210x, CH340, FTDI, WCH, Espressif native USB-JTAG/serial)
-    keywords = ["usbserial", "wchusbserial", "slab_usbtouart", "usbmodem", "cp210", "ch340", "ftdi", "espressif", "uart"]
+    # 2. Look for known USB-serial adapters and microcontrollers
+    keywords = [
+        "usbserial",
+        "usb serial",
+        "wchusbserial",
+        "slab_usbtouart",
+        "usbmodem",
+        "cp210",
+        "ch340",
+        "ch341",
+        "ch910",
+        "ftdi",
+        "espressif",
+        "303a:",       # Espressif native USB-JTAG/CDC VID
+        "10c4:",       # Silicon Labs CP210x VID
+        "1a86:",       # WCH CH340 VID
+        "0403:",       # FTDI VID
+        "uart",
+    ]
 
     for p in available_ports:
         dev_lower = (p.device or "").lower()
         desc_lower = (p.description or "").lower()
         hwid_lower = (p.hwid or "").lower()
 
-        # Prioritize matching device name
         for kw in keywords:
-            if kw in dev_lower:
+            if kw in dev_lower or kw in desc_lower or kw in hwid_lower:
                 return p.device
 
-        # Check description or hardware ID
-        for kw in keywords:
-            if kw in desc_lower or kw in hwid_lower:
-                return p.device
-
-    # Fallback: On Linux/Pi, pick first ttyUSB or ttyACM
+    # 3. Fallback: On Linux/Pi, pick first ttyUSB or ttyACM
     for p in available_ports:
-        if "ttyusb" in p.device.lower() or "ttyacm" in p.device.lower():
+        dev_lower = (p.device or "").lower()
+        if "ttyusb" in dev_lower or "ttyacm" in dev_lower:
             return p.device
+
+    # 4. Fallback: On Windows, pick active USB COM port (excluding COM1)
+    windows_coms = [p.device for p in available_ports if p.device.upper().startswith("COM") and p.device.upper() != "COM1"]
+    if len(windows_coms) == 1:
+        return windows_coms[0]
 
     return None
 
