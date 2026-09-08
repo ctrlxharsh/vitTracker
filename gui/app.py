@@ -6,6 +6,7 @@ and YOLO Autonomous Object Detection/Tracking with Pan-Tilt visual servoing.
 """
 
 from collections import deque
+import math
 import os
 import threading
 import time
@@ -73,6 +74,8 @@ class CSRTTrackerApp:
         self._source_switch_token = 0
         self._is_switching_source = False
         self._pending_source_ready = None
+        self.is_wandering = False
+        self._wander_start_time = 0.0
 
         # Telemetry & Performance throttling
         self.fps_tracker = deque(maxlen=20)
@@ -394,30 +397,43 @@ class CSRTTrackerApp:
         btn_servo_row.pack(fill="x", padx=10, pady=(0, 6))
         btn_servo_row.grid_columnconfigure(0, weight=1)
         btn_servo_row.grid_columnconfigure(1, weight=1)
+        btn_servo_row.grid_columnconfigure(2, weight=1)
 
         btn_recenter = ctk.CTkButton(
             btn_servo_row,
-            text="Center Servos",
+            text="Center",
             command=self._on_recenter_servos,
             fg_color="#1e293b",
             hover_color="#334155",
             height=24,
             corner_radius=6,
-            font=ctk.CTkFont(size=11),
+            font=ctk.CTkFont(size=10),
         )
         btn_recenter.grid(row=0, column=0, sticky="ew", padx=(0, 2))
 
+        self.btn_wander = ctk.CTkButton(
+            btn_servo_row,
+            text="Wander",
+            command=self._on_toggle_wander,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            height=24,
+            corner_radius=6,
+            font=ctk.CTkFont(size=10),
+        )
+        self.btn_wander.grid(row=0, column=1, sticky="ew", padx=(1, 1))
+
         btn_reconnect = ctk.CTkButton(
             btn_servo_row,
-            text="Reconnect ESP32",
+            text="Reconnect",
             command=self._on_reconnect_esp32,
             fg_color="#1e293b",
             hover_color="#334155",
             height=24,
             corner_radius=6,
-            font=ctk.CTkFont(size=11),
+            font=ctk.CTkFont(size=10),
         )
-        btn_reconnect.grid(row=0, column=1, sticky="ew", padx=(2, 0))
+        btn_reconnect.grid(row=0, column=2, sticky="ew", padx=(2, 0))
 
         # Telemetry Card
         self.telemetry_card = ctk.CTkFrame(self.sidebar, fg_color="#21232a", corner_radius=10)
@@ -688,8 +704,21 @@ class CSRTTrackerApp:
         self.lbl_serial_tx.configure(text=f"P:{pan_us} T:{tilt_us}")
 
     def _on_recenter_servos(self):
+        if self.is_wandering:
+            self.is_wandering = False
+            self.btn_wander.configure(text="Wander", fg_color="#1e293b")
         self.servo.center_servos()
         self._update_servo_telemetry(self.servo.pan_angle, self.servo.tilt_angle)
+
+    def _on_toggle_wander(self):
+        self.is_wandering = not self.is_wandering
+        if self.is_wandering:
+            self.btn_wander.configure(text="Stop", fg_color="#065f46")
+            self._wander_start_time = time.monotonic()
+        else:
+            self.btn_wander.configure(text="Wander", fg_color="#1e293b")
+            self.servo.center_servos()
+            self._update_servo_telemetry(self.servo.pan_angle, self.servo.tilt_angle)
 
     def _on_camera_selected(self, choice: str):
         cam_idx = getattr(self, "cam_dict", {}).get(choice, 0)
@@ -979,13 +1008,25 @@ class CSRTTrackerApp:
                     else:
                         trajectory = self.csrt_tracker.trajectory
 
-                # Feed Detection to Pan-Tilt Servoing Subsystem at full video rate (30-60 FPS)
-                pan_ang, tilt_ang = self.servo.update(
-                    center=result.center if result.success else None,
-                    frame_w=fw,
-                    frame_h=fh,
-                    dt=dt,
-                )
+                if self.is_wandering:
+                    t_w = time.monotonic() - self._wander_start_time
+                    p_delta = 260.0 * math.sin(0.65 * t_w) + 90.0 * math.sin(1.42 * t_w + 0.8)
+                    p_us = int(round(max(1150, min(1850, 1500 + p_delta))))
+                    t_delta = 140.0 * math.cos(0.51 * t_w) + 60.0 * math.sin(1.15 * t_w + 1.4)
+                    t_us = int(round(max(1280, min(1720, 1500 + t_delta))))
+                    if self.servo.is_hardware and self.servo.serial_bridge:
+                        self.servo.serial_bridge.send_pwm(p_us, t_us)
+                    self.servo.pan_servo.write((p_us - 1500) * 0.09)
+                    self.servo.tilt_servo.write((t_us - 1500) * 0.09)
+                    pan_ang, tilt_ang = self.servo.pan_angle, self.servo.tilt_angle
+                else:
+                    # Feed Detection to Pan-Tilt Servoing Subsystem at full video rate (30-60 FPS)
+                    pan_ang, tilt_ang = self.servo.update(
+                        center=result.center if result.success else None,
+                        frame_w=fw,
+                        frame_h=fh,
+                        dt=dt,
+                    )
                 if update_telemetry:
                     self._update_servo_telemetry(pan_ang, tilt_ang)
 
