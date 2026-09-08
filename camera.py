@@ -153,39 +153,26 @@ _CACHED_CAMERAS = None
 
 
 def get_available_cameras(refresh: bool = False):
-    """Returns list of (index, display_label) for all active cameras without out-of-bound errors."""
+    """Returns list of (index, display_label) for active cameras."""
     global _CACHED_CAMERAS
     if _CACHED_CAMERAS is not None and not refresh:
         return list(_CACHED_CAMERAS)
 
     cameras = []
-    cam_names = []
-    try:
-        res = subprocess.run(
-            ["system_profiler", "SPCameraDataType", "-json"],
-            capture_output=True,
-            text=True,
-            timeout=1.5,
-        )
-        data = json.loads(res.stdout)
-        for item in data.get("SPCameraDataType", []):
-            name = item.get("_name", "")
-            if name:
-                cam_names.append(name)
-    except Exception:
-        pass
-
-    num_cams = len(cam_names) if cam_names else 2
-    for idx in range(num_cams):
+    # Test index 0 and 1 directly
+    for idx in [0, 1]:
         cap = cv2.VideoCapture(idx)
         if cap.isOpened():
             ret, frame = cap.read()
             cap.release()
             if ret and frame is not None:
                 h, w = frame.shape[:2]
-                name = cam_names[idx] if idx < len(cam_names) else f"Camera {idx}"
-                label = f"{name} ({w}x{h})"
+                if idx == 0:
+                    label = f"USB Camera (Index 0 - {w}x{h})"
+                else:
+                    label = f"MacBook Camera (Index 1 - {w}x{h})"
                 cameras.append((idx, label))
+
     if not cameras:
         cameras.append((0, "Camera 0 [Default]"))
     _CACHED_CAMERAS = cameras
@@ -193,15 +180,7 @@ def get_available_cameras(refresh: bool = False):
 
 
 def find_best_camera_source() -> int:
-    """
-    Auto-detects the most suitable camera index.
-    Prioritizes external USB webcams (typically index 1+) over built-in laptop cameras (index 0).
-    """
-    cams = get_available_cameras()
-    # If any external camera (index > 0) exists, prioritize it
-    for idx, _ in cams:
-        if idx > 0:
-            return idx
+    """Default to USB Camera (Index 0)."""
     return 0
 
 

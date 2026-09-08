@@ -28,16 +28,6 @@
 #include <ESP32Servo.h>
 
 // ---------------------------------------------------------------------------
-// ESP32-S3 Native USB Serial Compatibility
-// ---------------------------------------------------------------------------
-#if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32C3)
-  #if !ARDUINO_USB_CDC_ON_BOOT
-    #include "HWCDC.h"
-    #define HAS_HWCDC 1
-  #endif
-#endif
-
-// ---------------------------------------------------------------------------
 // Hardware Pin Definitions
 // ---------------------------------------------------------------------------
 #define PAN_PIN   14    // Pan servo PWM output
@@ -63,8 +53,11 @@
 Servo panServo;
 Servo tiltServo;
 
+int targetPanUs   = CENTER_US;
+int targetTiltUs  = CENTER_US;
 int currentPanUs  = CENTER_US;
 int currentTiltUs = CENTER_US;
+bool servosAttached = true;
 
 char serialBuffer[64];
 uint8_t bufferIndex = 0;
@@ -76,9 +69,6 @@ const unsigned long WATCHDOG_TIMEOUT_MS = 2000;
 // ---------------------------------------------------------------------------
 void sendFeedback(const char* msg) {
     Serial.println(msg);
-#if defined(HAS_HWCDC)
-    USBSerial.println(msg);
-#endif
 }
 
 // ---------------------------------------------------------------------------
@@ -86,13 +76,10 @@ void sendFeedback(const char* msg) {
 // ---------------------------------------------------------------------------
 void setup() {
     Serial.begin(115200);
-#if defined(HAS_HWCDC)
-    USBSerial.begin(115200);
-#endif
 
-    // Brief wait for USB CDC host connection
+    // Brief wait for USB Serial host connection
     unsigned long startWait = millis();
-    while (!Serial && (millis() - startWait < 1000)) {
+    while (!Serial && (millis() - startWait < 1500)) {
         delay(10);
     }
 
@@ -109,12 +96,11 @@ void setup() {
     panServo.setPeriodHertz(50);
     tiltServo.setPeriodHertz(50);
 
-    panServo.attach(PAN_PIN, MIN_PULSE_US, MAX_PULSE_US);
-    tiltServo.attach(TILT_PIN, MIN_PULSE_US, MAX_PULSE_US);
-
-    // Recenter servos on boot
+    // Set center position before attaching to prevent initial power-up jump
     panServo.writeMicroseconds(CENTER_US);
     tiltServo.writeMicroseconds(CENTER_US);
+    panServo.attach(PAN_PIN, MIN_PULSE_US, MAX_PULSE_US);
+    tiltServo.attach(TILT_PIN, MIN_PULSE_US, MAX_PULSE_US);
 
     // Startup LED blink sequence (3 quick flashes)
     for (int i = 0; i < 3; i++) {
@@ -141,10 +127,12 @@ void processPacket(const char* packet) {
     int tiltVal = -1;
 
     if (strncmp(packet, "CENTER", 6) == 0 || strncmp(packet, "RESET", 5) == 0) {
-        panVal = CENTER_US;
-        tiltVal = CENTER_US;
+        targetPanUs = CENTER_US;
+        targetTiltUs = CENTER_US;
+        servosAttached = true;
         sendFeedback("ACK: CENTER");
     } else if (strncmp(packet, "OFF", 3) == 0 || strncmp(packet, "DETACH", 6) == 0 || strncmp(packet, "STOP", 4) == 0) {
+        servosAttached = false;
         panServo.writeMicroseconds(0);
         tiltServo.writeMicroseconds(0);
         digitalWrite(LED_PIN, LOW);
@@ -160,6 +148,7 @@ void processPacket(const char* packet) {
     }
 
     if (panVal == 0 && tiltVal == 0) {
+        servosAttached = false;
         panServo.writeMicroseconds(0);
         tiltServo.writeMicroseconds(0);
         digitalWrite(LED_PIN, LOW);
@@ -170,12 +159,10 @@ void processPacket(const char* packet) {
     if (panVal >= MIN_PULSE_US && panVal <= MAX_PULSE_US &&
         tiltVal >= MIN_PULSE_US && tiltVal <= MAX_PULSE_US) {
 
-        // Constrain to physical safe envelope
-        currentPanUs = constrain(panVal, PAN_MIN_US, PAN_MAX_US);
-        currentTiltUs = constrain(tiltVal, TILT_MIN_US, TILT_MAX_US);
-
-        panServo.writeMicroseconds(currentPanUs);
-        tiltServo.writeMicroseconds(currentTiltUs);
+        // Constrain to physical safe envelope and set smooth interpolation targets
+        targetPanUs = constrain(panVal, PAN_MIN_US, PAN_MAX_US);
+        targetTiltUs = constrain(tiltVal, TILT_MIN_US, TILT_MAX_US);
+        servosAttached = true;
 
         lastPacketTime = millis();
         digitalWrite(LED_PIN, HIGH); // LED ON when active
@@ -203,15 +190,28 @@ void loop() {
         handleSerialChar((char)Serial.read());
     }
 
-#if defined(HAS_HWCDC)
-    // Read from native USB CDC if active
-    while (USBSerial.available() > 0) {
-        handleSerialChar((char)USBSerial.read());
-    }
-#endif
+    // Smooth hardware slew rate limiter: gently ramp pulse width to target
+    static unsigned long lastSlewTime = 0;
+    if (servosAttached && (millis() - lastSlewTime >= 15)) {
+        lastSlewTime = millis();
+        const int MAX_US_STEP = 6; // Smooth 6us per 15ms prevents sudden jerk
 
-    // Safety watchdog: turn off LED if no packets received recently
-    if (millis() - lastPacketTime > WATCHDOG_TIMEOUT_MS) {
+        if (currentPanUs != targetPanUs) {
+            int diff = targetPanUs - currentPanUs;
+            currentPanUs += constrain(diff, -MAX_US_STEP, MAX_US_STEP);
+            panServo.writeMicroseconds(currentPanUs);
+        }
+        if (currentTiltUs != targetTiltUs) {
+            int diff = targetTiltUs - currentTiltUs;
+            currentTiltUs += constrain(diff, -MAX_US_STEP, MAX_US_STEP);
+            tiltServo.writeMicroseconds(currentTiltUs);
+        }
+    }
+
+    // Safety watchdog: return gently to center and hold position if packets stop
+    if (servosAttached && (millis() - lastPacketTime > WATCHDOG_TIMEOUT_MS)) {
+        targetPanUs = CENTER_US;
+        targetTiltUs = CENTER_US;
         digitalWrite(LED_PIN, LOW);
     }
 }

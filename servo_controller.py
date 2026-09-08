@@ -103,44 +103,70 @@ def find_esp32_port(preferred: Optional[str] = None) -> Optional[str]:
 
 class AxisController:
     """
-    Incremental PD controller with exponential moving average (EMA) smoothing and deadband.
+    Smooth, time-normalized incremental PD controller with EMA filtering,
+    derivative kick prevention, and velocity/slew-rate limiting.
     """
 
     def __init__(
         self,
-        kp: float = 0.70,
-        kd: float = 0.08,
+        kp: float = 1.8,
+        kd: float = 0.04,
         deadband_px: float = 10.0,
-        max_step_deg: float = 10.0,
-        ema: float = 0.75,
+        max_step_deg: float = 0.8,
+        max_speed_deg_s: float = 25.0,
+        ema: float = 0.25,
+        **kwargs,
     ):
         self.kp = kp
         self.kd = kd
         self.deadband_px = deadband_px
         self.max_step_deg = max_step_deg
+        self.max_speed_deg_s = max_speed_deg_s
         self.ema = ema
         self.filt_err = 0.0
         self.prev_err = 0.0
+        self.first_step = True
 
     def reset(self):
         self.filt_err = 0.0
         self.prev_err = 0.0
+        self.first_step = True
 
     def step(self, err_px: float, deg_per_px: float, dt: float) -> float:
-        """Returns angle increment in degrees for this update tick."""
+        """Returns smooth angle increment in degrees for this update tick."""
         if abs(err_px) < self.deadband_px:
-            self.filt_err = 0.0
-            self.prev_err = 0.0
+            # Soft deadband: decay filtered error to eliminate abrupt kick when re-exiting deadband
+            self.filt_err *= 0.5
+            self.first_step = True
             return 0.0
 
-        self.filt_err += self.ema * (err_px - self.filt_err)
+        # EMA filter on error to suppress bounding box detection jitter
+        if self.first_step:
+            self.filt_err = err_px
+        else:
+            self.filt_err += self.ema * (err_px - self.filt_err)
+
         err_deg = self.filt_err * deg_per_px
 
-        derr = (err_deg - self.prev_err) / dt if dt > 0 else 0.0
+        # Suppress derivative kick on initial lock or setpoint change
+        if self.first_step or dt <= 0:
+            derr = 0.0
+            self.first_step = False
+        else:
+            derr = (err_deg - self.prev_err) / dt
+
         self.prev_err = err_deg
 
-        delta = self.kp * err_deg + self.kd * derr
-        return max(-self.max_step_deg, min(self.max_step_deg, delta))
+        # Angular velocity command (deg/s) based on proportional error and derivative damping
+        vel_cmd = self.kp * err_deg + self.kd * derr
+
+        # Convert velocity to incremental angle for this time step
+        effective_dt = dt if dt > 0 else 0.033
+        delta = vel_cmd * effective_dt
+
+        # Strict slew-rate limiting: cap maximum step and velocity for slow, smooth motion
+        max_allowed = min(self.max_step_deg, self.max_speed_deg_s * effective_dt)
+        return max(-max_allowed, min(max_allowed, delta))
 
 
 class Servo:
@@ -206,12 +232,11 @@ class ESP32SerialBridge:
             self.ser = serial.Serial(
                 port=port,
                 baudrate=self.baudrate,
-                timeout=0.05,
-                write_timeout=0.05,
+                timeout=0.1,
             )
             try:
-                self.ser.dtr = True
-                self.ser.rts = False  # Keep RTS low to prevent unintended hardware reset
+                self.ser.dtr = False
+                self.ser.rts = False
             except Exception:
                 pass
             time.sleep(0.15)  # Allow USB CDC connection to settle
@@ -260,6 +285,31 @@ class ESP32SerialBridge:
                 except Exception as e:
                     print(f"[ESP32] Serial write error on {self.port}: {e}")
                     self.is_connected = False
+                    try:
+                        self.ser.close()
+                    except Exception:
+                        pass
+                    self.ser = None
+
+            # Automatic reconnection attempt if port dropped
+            if not self.is_connected and self.port and self._worker_running:
+                time.sleep(1.0)
+                try:
+                    new_ser = serial.Serial(
+                        port=self.port,
+                        baudrate=self.baudrate,
+                        timeout=0.1,
+                    )
+                    try:
+                        new_ser.dtr = True
+                        new_ser.rts = True
+                    except Exception:
+                        pass
+                    self.ser = new_ser
+                    self.is_connected = True
+                    print(f"[ESP32] Auto-reconnected successfully on {self.port}")
+                except Exception:
+                    pass
 
             # Drain incoming serial buffer (e.g. feedback, ACKs, logs from ESP32)
             if self.ser is not None and self.is_connected:
@@ -276,14 +326,11 @@ class ESP32SerialBridge:
 
     def send_pwm(self, pan_us: int, tilt_us: int) -> bool:
         """Non-blocking: Enqueues PWM target for background worker thread."""
-        if not self.is_connected:
-            return False
-
         with self._target_lock:
             self._target_pan = pan_us
             self._target_tilt = tilt_us
         self._has_new_target.set()
-        return True
+        return self.is_connected
 
     def send_command(self, cmd: str) -> bool:
         """Sends raw command string to ESP32."""
@@ -304,8 +351,8 @@ class ESP32SerialBridge:
 
         if self.ser is not None:
             try:
-                # Send 0 PWM and OFF to ensure servos detach holding torque upon close
-                self.ser.write(b"P:0 T:0\nOFF\n")
+                # Park servos at center to maintain position and prevent sagging/jerk on restart
+                self.ser.write(b"CENTER\n")
                 self.ser.flush()
                 time.sleep(0.04)
                 self.ser.close()
@@ -346,8 +393,23 @@ class PanTiltServoing:
         self.pan_servo = Servo(lo_deg=pan_min, hi_deg=pan_max, start_deg=0.0)
         self.tilt_servo = Servo(lo_deg=tilt_min, hi_deg=tilt_max, start_deg=0.0)
 
-        self.pan_ctl = AxisController(kp=0.70, kd=0.08, deadband_px=10.0, max_step_deg=10.0, ema=0.75)
-        self.tilt_ctl = AxisController(kp=0.70, kd=0.08, deadband_px=10.0, max_step_deg=8.0, ema=0.75)
+        # Smooth, slow, and stable visual tracking dynamics
+        self.pan_ctl = AxisController(
+            kp=1.8,
+            kd=0.04,
+            deadband_px=10.0,
+            max_step_deg=0.8,
+            max_speed_deg_s=25.0,
+            ema=0.25,
+        )
+        self.tilt_ctl = AxisController(
+            kp=1.8,
+            kd=0.04,
+            deadband_px=10.0,
+            max_step_deg=0.6,
+            max_speed_deg_s=18.0,
+            ema=0.25,
+        )
 
         self.pan_cmd = 0.0
         self.tilt_cmd = 0.0
@@ -364,6 +426,7 @@ class PanTiltServoing:
                 self.serial_bridge = ESP32SerialBridge(port=target_port, baudrate=baud)
                 if self.serial_bridge.is_connected:
                     self.active_port = target_port
+                    self.center_servos()
             else:
                 print("[ESP32] No hardware serial device detected. Initializing in MOCK mode.")
         else:
@@ -480,7 +543,7 @@ class PanTiltServoing:
             self.serial_bridge.send_command("OFF")
 
     def release(self):
-        """Closes serial connection and relaxes servos with 0 PWM."""
+        """Closes serial connection safely, parking servos at center."""
         if self in _ACTIVE_SERVO_INSTANCES:
             try:
                 _ACTIVE_SERVO_INSTANCES.remove(self)
@@ -489,7 +552,7 @@ class PanTiltServoing:
 
         if self.serial_bridge is not None:
             try:
-                self.relax_servos()
+                self.center_servos()
                 time.sleep(0.06)
             except Exception:
                 pass

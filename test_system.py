@@ -77,6 +77,33 @@ def test_pantilt_servoing():
     print("  PanTiltServoing tests passed!")
 
 
+def test_smoothness_and_no_jerk():
+    print("Testing AxisController smoothness and derivative kick suppression...")
+    ctl = AxisController(kp=1.8, kd=0.04, deadband_px=10.0, max_step_deg=0.8, max_speed_deg_s=25.0)
+
+    # Sudden large offset (target appears 200px off-center)
+    dt = 0.033  # ~30 FPS
+    step1 = ctl.step(err_px=200.0, deg_per_px=0.1, dt=dt)
+
+    # Step 1 must be strictly bounded by max velocity * dt (no derivative kick)
+    assert step1 <= 25.0 * dt + 1e-5, f"Step 1 exceeded max velocity: {step1}"
+    assert step1 <= 0.8, f"Step 1 exceeded max_step_deg: {step1}"
+    assert step1 > 0.0, f"Step 1 should be positive: {step1}"
+
+    # Verify smooth evolution over 20 steps
+    steps = [step1]
+    for _ in range(19):
+        s = ctl.step(err_px=200.0, deg_per_px=0.1, dt=dt)
+        steps.append(s)
+        assert s <= 0.8 and s <= 25.0 * dt + 1e-5
+
+    # No sudden spikes or discontinuities
+    for i in range(1, len(steps)):
+        diff = abs(steps[i] - steps[i - 1])
+        assert diff < 0.2, f"Step acceleration discontinuity at frame {i}: {diff}"
+    print("  Smoothness and jerk suppression tests passed!")
+
+
 def test_tracker_synthetic():
     print("Testing CSRTTrackerEngine on synthetic frames...")
     engine = CSRTTrackerEngine()
@@ -134,6 +161,7 @@ def main():
     test_axis_controller()
     test_servo_mock()
     test_pantilt_servoing()
+    test_smoothness_and_no_jerk()
     test_tracker_synthetic()
     test_yolo_tracker()
     print("\nALL SYSTEM TESTS PASSED SUCCESSFULLY!")

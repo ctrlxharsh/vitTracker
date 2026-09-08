@@ -8,16 +8,19 @@ This folder contains the firmware to flash onto your **NodeMCU ESP32** (or any s
 
 | Component Wire | Color | Connects To |
 |---|---|---|
-| **Pan Servo Signal** | Yellow / Orange | ESP32 **GPIO 18** |
-| **Tilt Servo Signal** | Yellow / Orange | ESP32 **GPIO 19** |
+| **Pan Servo Signal** | Yellow / Orange | ESP32-S3 **GPIO 14** |
+| **Tilt Servo Signal** | Yellow / Orange | ESP32-S3 **GPIO 13** |
 | **Servo Power** | Red (+5V) | External 5V Power Supply (+ terminal) |
 | **Servo Ground** | Brown / Black (GND) | External 5V Power Supply (- terminal) |
 | **Common Ground** | Black / Ground Wire | ESP32 **GND** pin |
-| **USB Data / Power** | Micro-USB or USB-C | Mac / Host PC |
+| **USB Data / Power** | USB-C Cable | Mac / Host PC |
+
+> [!CAUTION]
+> **DO NOT USE GPIO 19 / 20 ON ESP32-S3**:
+> On the ESP32-S3, **GPIO 19 is USB D-** and **GPIO 20 is USB D+**. If a servo wire is plugged into GPIO 19 or 20, it will short the USB data lines and crash the USB connection immediately. Always use **GPIO 14** (Pan) and **GPIO 13** (Tilt).
 
 > [!IMPORTANT]
-> **Common Ground**: You **MUST** connect the ESP32 `GND` pin to the external servo power supply `-` (ground) wire. If ground is not shared, the PWM signal will be unstable and servos will jitter.
-> **Separate Power**: Do not power both servos directly from the ESP32 3.3V or 5V (VIN) pin, as servos draw peak currents up to 1A each, which can cause ESP32 brownout resets.
+> **Separate Power**: Do not power both servos directly from the ESP32 3.3V or 5V (VIN) pin from your computer USB port. Two servos moving simultaneously draw 1.5A–2.0A peak current, which will trip USB overcurrent or brown out the ESP32, shutting it off. Use an external 5V power supply (or USB power bank / phone charger) for the servos, sharing common GND with the ESP32.
 
 ---
 
