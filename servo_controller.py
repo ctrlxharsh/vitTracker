@@ -251,7 +251,7 @@ class ESP32SerialBridge:
                     port=port,
                     baudrate=self.baudrate,
                     timeout=0.2,
-                    write_timeout=0.5,
+                    write_timeout=0,
                 )
                 try:
                     self.ser.reset_input_buffer()

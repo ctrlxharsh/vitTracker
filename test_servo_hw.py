@@ -31,7 +31,7 @@ def main():
         return
 
     print(f"[+] Found ESP32 port: {port}")
-    s = serial.Serial(port=port, baudrate=115200, timeout=1)
+    s = serial.Serial(port=port, baudrate=115200, timeout=1, write_timeout=0)
     s.dtr = False
     s.rts = False
     time.sleep(0.3)
