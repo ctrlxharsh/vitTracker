@@ -616,10 +616,12 @@ class CSRTTrackerApp:
 
         self.video_canvas = tk.Canvas(
             self.main_frame,
+            width=800,
+            height=600,
             bg="#0d0e12",
             highlightthickness=0,
         )
-        self.video_canvas.grid(row=0, column=0, sticky="nsew")
+        self.video_canvas.pack(fill="both", expand=True)
 
     def _bind_events(self):
         self.video_canvas.bind("<ButtonPress-1>", self._on_canvas_press)
@@ -1163,7 +1165,12 @@ class CSRTTrackerApp:
         cw = self.video_canvas.winfo_width()
         ch = self.video_canvas.winfo_height()
         if cw <= 10 or ch <= 10:
-            return
+            self.root.update_idletasks()
+            cw = self.video_canvas.winfo_width()
+            ch = self.video_canvas.winfo_height()
+        if cw <= 10 or ch <= 10:
+            cw = max(self.video_canvas.winfo_reqwidth(), 640)
+            ch = max(self.video_canvas.winfo_reqheight(), 480)
 
         fh, fw = frame.shape[:2]
         scale = min(cw / fw, ch / fh)

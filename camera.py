@@ -171,6 +171,14 @@ def get_available_cameras(refresh: bool = False):
     if _CACHED_CAMERAS is not None and not refresh:
         return list(_CACHED_CAMERAS)
 
+    dshow_names = []
+    if platform.system() == "Windows":
+        try:
+            from pygrabber.dshow_graph import FilterGraph
+            dshow_names = FilterGraph().get_input_devices()
+        except Exception:
+            dshow_names = []
+
     cameras = []
     # Test indices 0 through 4 (handles laptops with built-in + external USB cameras)
     for idx in range(5):
@@ -183,7 +191,8 @@ def get_available_cameras(refresh: bool = False):
                 if platform.system() == "Darwin":
                     label = f"USB Camera (Index {idx} - {w}x{h})" if idx == 0 else f"Camera (Index {idx} - {w}x{h})"
                 elif platform.system() == "Windows":
-                    label = f"Camera {idx} (USB/Webcam - {w}x{h})"
+                    friendly = dshow_names[idx] if idx < len(dshow_names) else f"Camera {idx}"
+                    label = f"{friendly} (Index {idx} - {w}x{h})"
                 else:
                     label = f"Camera {idx} ({w}x{h})"
                 cameras.append((idx, label))
@@ -197,11 +206,22 @@ def get_available_cameras(refresh: bool = False):
 
 
 def find_best_camera_source() -> int:
-    """Returns the first detected active camera index."""
+    """Returns the best detected camera index (preferring external USB webcams)."""
     cams = get_available_cameras()
-    if cams:
-        return cams[0][0]
-    return 0
+    if not cams:
+        return 0
+
+    # Look for dedicated external USB cameras (e.g. Logitech, USB Video, etc.)
+    for idx, label in cams:
+        lbl_lower = label.lower()
+        if any(kw in lbl_lower for kw in ("logi", "c270", "usb", "external", "webcam")) and "fhd" not in lbl_lower:
+            return idx
+
+    # If multiple cameras and index 1 exists, prefer index 1 over index 0 (laptop screen)
+    if len(cams) > 1 and any(idx == 1 for idx, _ in cams):
+        return 1
+
+    return cams[0][0]
 
 
 def open_video_capture(source="auto", width: int = 1280, height: int = 720):
