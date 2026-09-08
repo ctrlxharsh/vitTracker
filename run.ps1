@@ -61,54 +61,85 @@ Write-Host "       AI Vision Tracker & Pan-Tilt Servoing              " -Foregro
 Write-Host "                  Windows Launcher                        " -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
-# 1. Locate Python 3 Interpreter
-$pythonCmd = $null
+# 1. Locate Python 3 Interpreter Executable
+$pythonExe = $null
 
-# Check Windows Python Launcher (py.exe)
+# Check Windows Python Launcher (py.exe) and resolve actual python.exe path
 if (Get-Command "py" -ErrorAction SilentlyContinue) {
-    $ver = & py -3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
-    if ($LASTEXITCODE -eq 0 -and $ver) {
-        $pythonCmd = @("py", "-3")
-    }
+    try {
+        $resolved = & py -3 -c "import sys; print(sys.executable)" 2>$null
+        if ($LASTEXITCODE -eq 0 -and $resolved) {
+            $candidate = $resolved.Trim()
+            if (Test-Path $candidate) {
+                $pythonExe = $candidate
+            }
+        }
+    } catch {}
 }
 
 # Check standard python in PATH
-if (-not $pythonCmd -and (Get-Command "python" -ErrorAction SilentlyContinue)) {
-    # Guard against Windows Store 0-byte execution alias stub
-    $ver = & python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
-    if ($LASTEXITCODE -eq 0 -and $ver) {
-        $pythonCmd = @("python")
-    }
-}
-
-# Check common default installation locations if not found in PATH
-if (-not $pythonCmd) {
-    $localPyPaths = @(
-        "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe",
-        "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe",
-        "$env:LOCALAPPDATA\Programs\Python\Python310\python.exe",
-        "C:\Program Files\Python312\python.exe",
-        "C:\Program Files\Python311\python.exe",
-        "C:\Program Files\Python310\python.exe"
-    )
-    foreach ($cand in $localPyPaths) {
-        if (Test-Path $cand) {
-            $pythonCmd = @($cand)
-            break
+if (-not $pythonExe -and (Get-Command "python" -ErrorAction SilentlyContinue)) {
+    try {
+        $resolved = & python -c "import sys; print(sys.executable)" 2>$null
+        if ($LASTEXITCODE -eq 0 -and $resolved) {
+            $candidate = $resolved.Trim()
+            # Guard against Windows Store 0-byte execution alias stub
+            if ((Test-Path $candidate) -and (Get-Item $candidate).Length -gt 0) {
+                $verMajor = & $candidate -c "import sys; print(sys.version_info.major)" 2>$null
+                if ($verMajor -match "3") {
+                    $pythonExe = $candidate
+                }
+            }
         }
+    } catch {}
+}
+
+# Check python3 in PATH
+if (-not $pythonExe -and (Get-Command "python3" -ErrorAction SilentlyContinue)) {
+    try {
+        $resolved = & python3 -c "import sys; print(sys.executable)" 2>$null
+        if ($LASTEXITCODE -eq 0 -and $resolved) {
+            $candidate = $resolved.Trim()
+            if (Test-Path $candidate) {
+                $pythonExe = $candidate
+            }
+        }
+    } catch {}
+}
+
+# Search standard Windows installation folders if not in PATH
+if (-not $pythonExe) {
+    $searchPatterns = @(
+        "$env:LOCALAPPDATA\Programs\Python\Python3*\python.exe",
+        "$env:ProgramFiles\Python3*\python.exe",
+        "${env:ProgramFiles(x86)}\Python3*\python.exe",
+        "C:\Python3*\python.exe"
+    )
+    foreach ($pattern in $searchPatterns) {
+        $found = Get-ChildItem -Path $pattern -ErrorAction SilentlyContinue | Sort-Object FullName -Descending
+        foreach ($item in $found) {
+            if (Test-Path $item.FullName) {
+                $verMajor = & $item.FullName -c "import sys; print(sys.version_info.major)" 2>$null
+                if ($verMajor -match "3") {
+                    $pythonExe = $item.FullName
+                    break
+                }
+            }
+        }
+        if ($pythonExe) { break }
     }
 }
 
-if (-not $pythonCmd) {
+if (-not $pythonExe) {
     Write-Host "[ERROR] Python 3 was not found on your system." -ForegroundColor Red
     Write-Host "Please install Python 3.10, 3.11, or 3.12 from https://www.python.org/downloads/windows/" -ForegroundColor Yellow
     Write-Host "Make sure to check 'Add python.exe to PATH' during installation." -ForegroundColor Yellow
-    Write-Host "Or via winget: winget install Python.Python.3.11" -ForegroundColor Yellow
+    Write-Host "Or install via winget: winget install Python.Python.3.11" -ForegroundColor Yellow
     exit 1
 }
 
-$pyVersion = & $pythonCmd -c "import sys; print(sys.version.split()[0])"
-Write-Host "[OK] Detected Python $pyVersion ($($pythonCmd -join ' '))" -ForegroundColor Green
+$pyVersion = & $pythonExe -c "import sys; print(sys.version.split()[0])"
+Write-Host "[OK] Detected Python $pyVersion ($pythonExe)" -ForegroundColor Green
 
 # 2. Select profile / requirements
 $reqFile = "requirements.txt"
@@ -126,7 +157,7 @@ $venvPip = Join-Path $venvDir "Scripts\pip.exe"
 
 if (-not (Test-Path $venvPython)) {
     Write-Host "==> Creating virtual environment (.venv)..." -ForegroundColor Cyan
-    & $pythonCmd -m venv $venvDir
+    & $pythonExe -m venv $venvDir
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $venvPython)) {
         Write-Host "[ERROR] Failed to create virtual environment." -ForegroundColor Red
         exit 1
