@@ -37,14 +37,26 @@ Features dual tracking engines with closed-loop 2-DoF Pan-Tilt visual servoing.
 ## Quick Start
 
 ### 1. Launch with GUI (YOLO mode default)
-```bash
-./run.sh
-```
-*or directly with python:*
-```bash
-source .venv/bin/activate
-python main.py
-```
+- **Linux / macOS**:
+  ```bash
+  ./run.sh
+  ```
+- **Windows (PowerShell)**:
+  ```powershell
+  .\run.ps1
+  ```
+  *(Or double-click `run.bat` / run `.\run.bat` in CMD/PowerShell)*
+
+- **Direct Python**:
+  ```bash
+  # Linux / macOS:
+  source .venv/bin/activate
+  python main.py
+
+  # Windows:
+  .venv\Scripts\activate
+  python main.py
+  ```
 
 ### 2. Launch directly in CSRT mode
 ```bash
