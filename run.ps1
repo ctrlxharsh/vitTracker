@@ -56,6 +56,8 @@ if ($Help) {
 $host.UI.RawUI.WindowTitle = "AI Vision Tracker"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $env:OPENCV_VIDEOIO_PRIORITY_MSMF = "0"
+$env:OPENCV_LOG_LEVEL = "ERROR"
+$env:PYTHONUNBUFFERED = "1"
 
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "       AI Vision Tracker & Pan-Tilt Servoing              " -ForegroundColor Cyan

@@ -294,6 +294,7 @@ def main():
             )
             return
 
+        print("==> Initializing GUI window...", flush=True)
         root = ctk.CTk()
         CSRTTrackerApp(
             root,
@@ -303,7 +304,9 @@ def main():
             yolo_weights=args.weights,
             yolo_conf=args.conf,
         )
+        print("==> Tracker GUI is now active on your screen! (Press 'q' or close window to exit)", flush=True)
         root.mainloop()
+        print("==> Tracker closed.", flush=True)
 
 
 if __name__ == "__main__":

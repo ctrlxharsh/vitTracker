@@ -17,9 +17,10 @@ import threading
 import time
 import cv2
 
-# Deprioritize buggy MSMF backend on Windows to prevent error -1072873821
+# Deprioritize buggy MSMF backend on Windows and silence noisy C++ backend warnings
 if platform.system() == "Windows":
     os.environ["OPENCV_VIDEOIO_PRIORITY_MSMF"] = "0"
+os.environ.setdefault("OPENCV_LOG_LEVEL", "ERROR")
 
 
 def _create_cv_capture(source, is_camera: bool = False):
