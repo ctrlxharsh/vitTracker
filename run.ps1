@@ -52,9 +52,10 @@ if ($Help) {
     exit 0
 }
 
-# Set console title and UTF-8 encoding
+# Set console title, UTF-8 encoding, and disable buggy MSMF backend for OpenCV
 $host.UI.RawUI.WindowTitle = "AI Vision Tracker"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$env:OPENCV_VIDEOIO_PRIORITY_MSMF = "0"
 
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "       AI Vision Tracker & Pan-Tilt Servoing              " -ForegroundColor Cyan

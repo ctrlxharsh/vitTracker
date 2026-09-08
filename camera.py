@@ -17,6 +17,20 @@ import threading
 import time
 import cv2
 
+# Deprioritize buggy MSMF backend on Windows to prevent error -1072873821
+if platform.system() == "Windows":
+    os.environ["OPENCV_VIDEOIO_PRIORITY_MSMF"] = "0"
+
+
+def _create_cv_capture(source, is_camera: bool = False):
+    """Creates a cv2.VideoCapture instance preferring DirectShow on Windows."""
+    if is_camera and platform.system() == "Windows":
+        # DirectShow resolves MSMF async ReadSample/grabFrame error -1072873821 on Windows
+        cap = cv2.VideoCapture(source, cv2.CAP_DSHOW)
+        if cap.isOpened():
+            return cap
+    return cv2.VideoCapture(source)
+
 
 class PiCameraCapture:
     """Wrapper for Raspberry Pi libcamera via picamera2 matching cv2.VideoCapture API."""
@@ -159,18 +173,20 @@ def get_available_cameras(refresh: bool = False):
         return list(_CACHED_CAMERAS)
 
     cameras = []
-    # Test index 0 and 1 directly
-    for idx in [0, 1]:
-        cap = cv2.VideoCapture(idx)
+    # Test indices 0 through 4 (handles laptops with built-in + external USB cameras)
+    for idx in range(5):
+        cap = _create_cv_capture(idx, is_camera=True)
         if cap.isOpened():
             ret, frame = cap.read()
             cap.release()
             if ret and frame is not None:
                 h, w = frame.shape[:2]
-                if idx == 0:
-                    label = f"USB Camera (Index 0 - {w}x{h})"
+                if platform.system() == "Darwin":
+                    label = f"USB Camera (Index {idx} - {w}x{h})" if idx == 0 else f"Camera (Index {idx} - {w}x{h})"
+                elif platform.system() == "Windows":
+                    label = f"Camera {idx} (USB/Webcam - {w}x{h})"
                 else:
-                    label = f"MacBook Camera (Index 1 - {w}x{h})"
+                    label = f"Camera {idx} ({w}x{h})"
                 cameras.append((idx, label))
 
     if not cameras:
@@ -180,7 +196,10 @@ def get_available_cameras(refresh: bool = False):
 
 
 def find_best_camera_source() -> int:
-    """Default to USB Camera (Index 0)."""
+    """Returns the first detected active camera index."""
+    cams = get_available_cameras()
+    if cams:
+        return cams[0][0]
     return 0
 
 
@@ -218,9 +237,9 @@ def open_video_capture(source="auto", width: int = 1280, height: int = 720):
         except Exception:
             pass
 
-    # Fall back to standard cv2.VideoCapture
+    # Fall back to standard cv2.VideoCapture with OS-optimized backend
     actual_source = cam_index if is_cam_index else source
-    cap = cv2.VideoCapture(actual_source)
+    cap = _create_cv_capture(actual_source, is_camera=is_cam_index)
 
     if is_cam_index:
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
@@ -250,7 +269,7 @@ def open_video_capture(source="auto", width: int = 1280, height: int = 720):
                 except Exception:
                     pass
                 # Reopen standard capture if picamera2 also failed
-                cap = cv2.VideoCapture(actual_source)
+                cap = _create_cv_capture(actual_source, is_camera=True)
 
         return OpenCVCapture(cap, source_desc=f"Webcam ({cam_index})", is_live=True, cam_index=cam_index)
     else:
